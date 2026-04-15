@@ -1531,6 +1531,8 @@ export class Game extends Scene {
             { label: '拆白装', rarity: 'common', color: '#9d9d9d' },
             { label: '拆白+蓝', rarity: 'magic', color: '#3498db' },
             { label: '拆<=黄', rarity: 'rare', color: '#f1c40f' },
+            { label: '拆<=传说', rarity: 'legendary', color: '#ff8000' },
+            { label: '拆<=神话', rarity: 'mythic', color: '#e6cc80' },
         ];
 
         let dy = ey + 34;
