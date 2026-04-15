@@ -127,6 +127,17 @@ interface PanelDragContext {
     frame: Phaser.GameObjects.Rectangle;
 }
 
+type GameplayPhase = 'town' | 'dungeon';
+
+interface DungeonRunSummary {
+    startFloor: number;
+    monsterKills: number;
+    gainedExp: number;
+    gainedGold: number;
+    pickedEquipments: Equipment[];
+    gainedConsumables: Map<string, number>;
+}
+
 export class Game extends Scene {
     // 游戏数据
     character!: CharacterData;
@@ -166,6 +177,10 @@ export class Game extends Scene {
     uiPanel: Phaser.GameObjects.Container | null = null;
     tooltipContainer: Phaser.GameObjects.Container | null = null;
     isUIOpen = false;
+    gameplayPhase: GameplayPhase = 'town';
+    townOverlay: Phaser.GameObjects.Container | null = null;
+    autoEnterNextFloor = false;
+    floorClearCountdownTimer: Phaser.Time.TimerEvent | null = null;
 
     // 地牢装饰
     floorTiles: Phaser.GameObjects.Rectangle[] = [];
@@ -174,6 +189,7 @@ export class Game extends Scene {
     autoSaveManager!: AutoSaveManager;
 
     private panelDragContext: PanelDragContext | null = null;
+    private dungeonRunSummary: DungeonRunSummary = this.createDungeonRunSummary();
 
     constructor() {
         super('Game');
@@ -210,6 +226,7 @@ export class Game extends Scene {
         this.renderPlayer();
         this.renderHUD();
         this.spawnMonstersForFloor();
+        this.enterTown(true);
 
         // 启动自动保存
         this.autoSaveManager = new AutoSaveManager(() => this.getCurrentSaveData());
@@ -231,6 +248,11 @@ export class Game extends Scene {
 
     update(time: number, delta: number) {
         if (this.isUIOpen) return;
+
+        if (this.gameplayPhase === 'town') {
+            this.updateHUD();
+            return;
+        }
 
         if (!isAlive(this.character)) {
             this.onPlayerDeath();
@@ -408,8 +430,8 @@ export class Game extends Scene {
         }
 
         if (canProceedToNextFloor(this.dungeon)) {
-            setExploreState(this.dungeon, 'transitioning');
-            this.stateTimer = 0;
+            this.enterTown();
+            this.showFloorClearPanel();
             return;
         }
 
@@ -458,6 +480,7 @@ export class Game extends Scene {
                 const loot = this.lootItems.pop()!;
                 if (!isFull(this.inventory)) {
                     addItem(this.inventory, loot.equipment);
+                    this.dungeonRunSummary.pickedEquipments.push(loot.equipment);
                     this.showPickupText(loot.x, loot.y, loot.equipment);
                     loot.sprite.destroy();
                 } else {
@@ -496,6 +519,9 @@ export class Game extends Scene {
         const leveledUp = addExperience(this.character, result.expGained);
         this.character.gold += result.goldGained;
         onMonsterKilled(this.dungeon);
+        this.dungeonRunSummary.monsterKills += 1;
+        this.dungeonRunSummary.gainedExp += result.expGained;
+        this.dungeonRunSummary.gainedGold += result.goldGained;
 
         if (leveledUp) {
             this.showLevelUp();
@@ -734,6 +760,265 @@ export class Game extends Scene {
         this.combatLog.setText(msg);
     }
 
+    private createDungeonRunSummary(): DungeonRunSummary {
+        return {
+            startFloor: this.dungeon?.currentFloor ?? 1,
+            monsterKills: 0,
+            gainedExp: 0,
+            gainedGold: 0,
+            pickedEquipments: [],
+            gainedConsumables: new Map<string, number>(),
+        };
+    }
+
+    private resetDungeonRunSummary() {
+        this.dungeonRunSummary = this.createDungeonRunSummary();
+        this.dungeonRunSummary.startFloor = this.dungeon.currentFloor;
+    }
+
+    private clearFloorClearCountdown() {
+        if (!this.floorClearCountdownTimer) return;
+        this.time.removeEvent(this.floorClearCountdownTimer);
+        this.floorClearCountdownTimer = null;
+    }
+
+    private proceedToNextFloorFromPanel() {
+        this.clearFloorClearCountdown();
+        this.closeUI();
+
+        proceedToNextFloor(this.dungeon);
+        this.renderDungeon();
+        this.spawnMonstersForFloor();
+        this.playerSprite.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
+        setExploreState(this.dungeon, 'exploring');
+        this.enterDungeon();
+    }
+
+    private showFloorClearPanel() {
+        this.closeUI();
+        this.isUIOpen = true;
+        this.clearFloorClearCountdown();
+
+        const summary = this.dungeonRunSummary;
+        const gainedItems = summary.pickedEquipments.slice(0, 6);
+        const consumableLines = Array.from(summary.gainedConsumables.entries()).slice(0, 3);
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+
+        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.75).setOrigin(0).setDepth(200).setInteractive();
+        elements.push(bg);
+
+        const panelBg = this.add.rectangle(200, 70, 624, 620, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x4a4a6a);
+        elements.push(panelBg);
+
+        const title = this.add.text(512, 95, `第 ${summary.startFloor} 层通关`, {
+            fontSize: '24px',
+            color: '#f1c40f',
+            fontStyle: 'bold',
+        }).setOrigin(0.5).setDepth(202);
+        elements.push(title);
+
+        const summaryText = this.add.text(240, 130, `击杀: ${summary.monsterKills}   经验: +${summary.gainedExp}   金币: +${summary.gainedGold}`, {
+            fontSize: '14px',
+            color: '#d6e6f5',
+        }).setDepth(202);
+        elements.push(summaryText);
+
+        const equipTitle = this.add.text(240, 170, '本次获得装备:', {
+            fontSize: '14px',
+            color: '#f39c12',
+        }).setDepth(202);
+        elements.push(equipTitle);
+
+        let listY = 198;
+        if (gainedItems.length === 0) {
+            const empty = this.add.text(250, listY, '无', { fontSize: '13px', color: '#95a5a6' }).setDepth(202);
+            elements.push(empty);
+            listY += 24;
+        } else {
+            for (const eq of gainedItems) {
+                const line = this.add.text(250, listY, `• ${eq.name}`, { fontSize: '13px', color: RARITY_CONFIG[eq.rarity].color }).setDepth(202);
+                elements.push(line);
+                listY += 22;
+            }
+        }
+
+        const consTitle = this.add.text(240, listY + 10, '本次获得消耗品:', {
+            fontSize: '14px',
+            color: '#f39c12',
+        }).setDepth(202);
+        elements.push(consTitle);
+
+        listY += 38;
+        if (consumableLines.length === 0) {
+            const empty = this.add.text(250, listY, '无', { fontSize: '13px', color: '#95a5a6' }).setDepth(202);
+            elements.push(empty);
+            listY += 24;
+        } else {
+            for (const [consumableName, count] of consumableLines) {
+                const line = this.add.text(250, listY, `• ${consumableName} x${count}`, { fontSize: '13px', color: '#2ecc71' }).setDepth(202);
+                elements.push(line);
+                listY += 22;
+            }
+        }
+
+        const autoLabel = this.add.text(240, 520, this.autoEnterNextFloor ? '[x] 自动进入下一层（3秒）' : '[ ] 自动进入下一层（3秒）', {
+            fontSize: '14px',
+            color: '#3498db',
+        }).setDepth(202).setInteractive({ useHandCursor: true });
+        elements.push(autoLabel);
+
+        const countdownText = this.add.text(240, 550, '', { fontSize: '13px', color: '#f1c40f' }).setDepth(202);
+        elements.push(countdownText);
+
+        const stayBtn = this.add.text(250, 600, '[留在主城]', {
+            fontSize: '16px',
+            color: '#95a5a6',
+        }).setDepth(202).setInteractive({ useHandCursor: true });
+        stayBtn.on('pointerdown', () => {
+            this.clearFloorClearCountdown();
+            this.closeUI();
+            this.log('已留在主城');
+        });
+        elements.push(stayBtn);
+
+        const nextBtn = this.add.text(620, 600, '[进入下一层]', {
+            fontSize: '16px',
+            color: '#2ecc71',
+            fontStyle: 'bold',
+        }).setDepth(202).setInteractive({ useHandCursor: true });
+        nextBtn.on('pointerdown', () => this.proceedToNextFloorFromPanel());
+        elements.push(nextBtn);
+
+        const startAutoCountdown = () => {
+            this.clearFloorClearCountdown();
+            if (!this.autoEnterNextFloor) {
+                countdownText.setText('');
+                return;
+            }
+
+            let remaining = 3;
+            countdownText.setText(`将在 ${remaining} 秒后自动进入下一层...`);
+            this.floorClearCountdownTimer = this.time.addEvent({
+                delay: 1000,
+                repeat: 2,
+                callback: () => {
+                    remaining -= 1;
+                    if (remaining > 0) {
+                        countdownText.setText(`将在 ${remaining} 秒后自动进入下一层...`);
+                    } else {
+                        countdownText.setText('正在进入下一层...');
+                        this.proceedToNextFloorFromPanel();
+                    }
+                },
+            });
+        };
+
+        autoLabel.on('pointerdown', () => {
+            this.autoEnterNextFloor = !this.autoEnterNextFloor;
+            autoLabel.setText(this.autoEnterNextFloor ? '[x] 自动进入下一层（3秒）' : '[ ] 自动进入下一层（3秒）');
+            startAutoCountdown();
+        });
+
+        const panelRect: PanelRect = { x: 200, y: 70, width: 624, height: 620 };
+        this.createManagedPanel(elements, panelRect, panelBg);
+        startAutoCountdown();
+    }
+
+    private setWorldVisibility(visible: boolean) {
+        if (this.playerSprite) {
+            this.playerSprite.setVisible(visible);
+        }
+
+        this.floorTiles.forEach(tile => tile.setVisible(visible));
+        this.monsterSprites.forEach(sprite => sprite.setVisible(visible));
+        this.lootItems.forEach(item => item.sprite.setVisible(visible));
+    }
+
+    private hideTownOverlay() {
+        if (!this.townOverlay) return;
+        this.townOverlay.destroy(true);
+        this.townOverlay = null;
+    }
+
+    private renderTownOverlay() {
+        this.hideTownOverlay();
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+
+        const mask = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT, 0x06111f, 0.9).setOrigin(0);
+        elements.push(mask);
+
+        const panel = this.add.rectangle(182, 140, 660, 320, 0x10243a).setOrigin(0).setStrokeStyle(2, 0x2f5c88);
+        elements.push(panel);
+
+        const title = this.add.text(512, 195, '主城', {
+            fontSize: '34px',
+            color: '#f1c40f',
+            fontStyle: 'bold',
+        }).setOrigin(0.5);
+        elements.push(title);
+
+        const desc = this.add.text(512, 250, '在主城整理背包、出售装备，然后进入地牢战斗。', {
+            fontSize: '15px',
+            color: '#d6e6f5',
+        }).setOrigin(0.5);
+        elements.push(desc);
+
+        const hint = this.add.text(512, 282, '提示：装备出售/分解仅能在主城商店进行。', {
+            fontSize: '13px',
+            color: '#f39c12',
+        }).setOrigin(0.5);
+        elements.push(hint);
+
+        const enterBtnBg = this.add.rectangle(512, 355, 220, 50, 0x1b7f3a).setStrokeStyle(2, 0x77d98e).setInteractive({ useHandCursor: true });
+        const enterBtnText = this.add.text(512, 355, '进入地牢', {
+            fontSize: '20px',
+            color: '#ffffff',
+            fontStyle: 'bold',
+        }).setOrigin(0.5);
+        enterBtnBg.on('pointerover', () => enterBtnBg.setFillStyle(0x24964a));
+        enterBtnBg.on('pointerout', () => enterBtnBg.setFillStyle(0x1b7f3a));
+        enterBtnBg.on('pointerdown', () => this.enterDungeon());
+        elements.push(enterBtnBg, enterBtnText);
+
+        this.townOverlay = this.add.container(0, 0, elements).setDepth(DEPTH.WORLD_FLOATING_TEXT + 5);
+    }
+
+    private enterTown(initial = false) {
+        if (!initial && this.gameplayPhase === 'town') return;
+
+        if (!initial) {
+            this.closeUI();
+        }
+        this.gameplayPhase = 'town';
+        this.currentMonster = null;
+        setExploreState(this.dungeon, 'exploring');
+        this.setWorldVisibility(false);
+        this.renderTownOverlay();
+
+        if (!initial) {
+            this.log('已回到主城');
+        }
+    }
+
+    private enterDungeon() {
+        if (this.gameplayPhase === 'dungeon') return;
+
+        this.closeUI();
+        this.gameplayPhase = 'dungeon';
+        this.resetDungeonRunSummary();
+        this.hideTownOverlay();
+        this.setWorldVisibility(true);
+
+        if (this.monsterSprites.size === 0) {
+            this.spawnMonstersForFloor();
+        }
+
+        setExploreState(this.dungeon, 'exploring');
+        this.log('进入地牢');
+    }
+
     // ─── HUD ───
 
     private renderHUD() {
@@ -774,6 +1059,7 @@ export class Game extends Scene {
 
         // 导航按钮（均匀分布）
         const navBtns: { label: string; color: string; action: () => void }[] = [
+            { label: '回主城', color: '#1abc9c', action: () => this.enterTown() },
             { label: '背包', color: '#3498db', action: () => this.openInventoryPanel() },
             { label: '装备', color: '#2ecc71', action: () => this.openEquipPanel() },
             { label: '属性', color: '#9b59b6', action: () => this.openStatsPanel() },
@@ -814,14 +1100,14 @@ export class Game extends Scene {
         this.hpText.setText(`${this.character.baseStats.hp} / ${stats.maxHp}`);
 
         const zone = getZoneForFloor(this.dungeon.currentFloor);
-        this.floorText.setText(`${zone.name} ${this.dungeon.currentFloor}F`);
+        this.floorText.setText(this.gameplayPhase === 'town' ? '主城 安全区' : `${zone.name} ${this.dungeon.currentFloor}F`);
         this.goldText.setText(`金币: ${this.character.gold}`);
         this.levelText.setText(`Lv.${this.character.level}  EXP: ${this.character.exp}/${this.character.expToNextLevel}`);
 
         const stateLabels: Record<ExploreState, string> = {
             exploring: '探索中', fighting: '战斗中!', looting: '拾取中', resting: '休息中', transitioning: '下楼中...',
         };
-        this.stateText.setText(stateLabels[this.dungeon.exploreState]);
+        this.stateText.setText(this.gameplayPhase === 'town' ? '主城待机' : stateLabels[this.dungeon.exploreState]);
 
         this.atkText.setText(`ATK:${stats.atk}  AS:${stats.attackSpeed.toFixed(1)}`);
         this.defText.setText(`DEF:${stats.def}  CR:${stats.critRate.toFixed(0)}%`);
@@ -929,6 +1215,7 @@ export class Game extends Scene {
 
     private closeUI() {
         this.clearPanelDragContext();
+        this.clearFloorClearCountdown();
 
         if (this.uiPanel) {
             const panel = this.uiPanel;
@@ -1393,6 +1680,7 @@ export class Game extends Scene {
         this.affixEffects = collectAffixEffects(this.equipped);
         this.consumables = [];
         this.activeBuffs = [];
+        this.resetDungeonRunSummary();
 
         this.renderDungeon();
         this.monsterSprites.forEach(s => s.destroy());
@@ -1402,6 +1690,14 @@ export class Game extends Scene {
         this.currentMonster = null;
         this.spawnMonstersForFloor();
         this.playerSprite.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
+
+        if (this.gameplayPhase === 'town') {
+            this.setWorldVisibility(false);
+            this.renderTownOverlay();
+        } else {
+            this.hideTownOverlay();
+            this.setWorldVisibility(true);
+        }
 
         this.autoSaveManager = new AutoSaveManager(() => this.getCurrentSaveData());
         this.autoSaveManager.start();
@@ -1491,6 +1787,7 @@ export class Game extends Scene {
         } else if (!existing) {
             this.consumables.push(createConsumable(selectedType));
         }
+        this.dungeonRunSummary.gainedConsumables.set(def.name, (this.dungeonRunSummary.gainedConsumables.get(def.name) ?? 0) + 1);
 
         this.log(`获得 ${def.name}`);
     }
@@ -1577,6 +1874,11 @@ export class Game extends Scene {
     // ─── 商店面板 ───
 
     private openShopPanel() {
+        if (this.gameplayPhase !== 'town') {
+            this.log('请先回到主城，再进行装备出售/分解');
+            return;
+        }
+
         this.closeUI();
         this.isUIOpen = true;
 
