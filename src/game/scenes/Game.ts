@@ -378,10 +378,11 @@ export class Game extends Scene {
         const sizes: Record<string, number> = { normal: 20, elite: 26, rare: 30, boss: 40 };
         const color = colors[monster.type] ?? 0xef5350;
         const size = sizes[monster.type] ?? 20;
+        const barWidth = size + 4;
 
         const body = this.add.rectangle(0, 0, size, size, color);
-        const hpBg = this.add.rectangle(0, -size / 2 - 6, size + 4, 4, 0x333333).setOrigin(0.5);
-        const hpBar = this.add.rectangle(-size / 2 - 2, -size / 2 - 6, size, 2, 0x00ff00).setOrigin(0, 0.5);
+        const hpBg = this.add.rectangle(0, -size / 2 - 6, barWidth, 4, 0x333333).setOrigin(0.5);
+        const hpBar = this.add.rectangle(-barWidth / 2, -size / 2 - 6, barWidth, 2, 0x00ff00).setOrigin(0, 0.5);
         const label = this.add.text(0, -size / 2 - 14, monster.name, { fontSize: '9px', color: '#ffffff' }).setOrigin(0.5);
 
         const container = this.add.container(monster.x, monster.y, [body, hpBg, hpBar, label]).setDepth(DEPTH.WORLD_ENTITY);
@@ -390,6 +391,7 @@ export class Game extends Scene {
         container.setData('monster', monster);
         container.setData('hpBar', hpBar);
         container.setData('maxHp', monster.stats.maxHp);
+        container.setData('hpBarWidth', barWidth);
     }
 
     private updateMonsterHpBar(monster: Monster) {
@@ -398,10 +400,10 @@ export class Game extends Scene {
 
         const hpBar = container.getData('hpBar') as Phaser.GameObjects.Rectangle;
         const maxHp = container.getData('maxHp') as number;
+        const barWidth = container.getData('hpBarWidth') as number;
         if (hpBar && maxHp > 0) {
             const ratio = Math.max(0, monster.stats.hp / maxHp);
-            const width = (monster.type === 'boss' ? 40 : 20) + 4;
-            hpBar.width = ratio * width;
+            hpBar.width = ratio * barWidth;
             hpBar.fillColor = ratio > 0.5 ? 0x00ff00 : ratio > 0.25 ? 0xffff00 : 0xff0000;
         }
     }
