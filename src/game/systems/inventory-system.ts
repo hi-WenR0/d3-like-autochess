@@ -1,14 +1,48 @@
 import {
     type InventoryData as IInventoryData,
+    type InventoryItem,
     type Equipment,
+    type Rarity,
+    type WearableSlot,
     INVENTORY_CAPACITY,
 } from '../models';
 
 export type InventoryData = IInventoryData;
+export type InventorySortBy = 'slot' | 'rarity' | 'level';
+export type InventorySortOrder = 'asc' | 'desc';
+
+export interface InventoryQuery {
+    rarity?: Rarity | 'all';
+    slot?: WearableSlot | 'all';
+    sortBy?: InventorySortBy;
+    sortOrder?: InventorySortOrder;
+}
+
+const RARITY_ORDER: Record<Rarity, number> = {
+    common: 0,
+    magic: 1,
+    rare: 2,
+    legendary: 3,
+    mythic: 4,
+};
+
+const DISMANTLE_ESSENCE_BY_RARITY: Record<Rarity, number> = {
+    common: 1,
+    magic: 3,
+    rare: 10,
+    legendary: 30,
+    mythic: 80,
+};
 
 /** 创建空背包 */
 export function createInventory(): InventoryData {
-    return { items: [], gold: 0 };
+    return {
+        items: [],
+        gold: 0,
+        dismantleEssence: 0,
+        autoDismantleEnabled: false,
+        autoDismantleMaxRarity: 'common',
+    };
 }
 
 /** 添加物品到背包，返回是否成功 */
@@ -20,6 +54,26 @@ export function addItem(inventory: InventoryData, equipment: Equipment): boolean
 
     inventory.items.push({ slotIndex, item: equipment });
     return true;
+}
+
+export interface AddItemResult {
+    action: 'added' | 'dismantled' | 'failed';
+    essenceGained: number;
+}
+
+/** 添加物品（支持自动拆解） */
+export function addItemWithAutoDismantle(inventory: InventoryData, equipment: Equipment): AddItemResult {
+    if (shouldAutoDismantle(inventory, equipment)) {
+        const essence = dismantleValue(equipment);
+        inventory.dismantleEssence += essence;
+        return { action: 'dismantled', essenceGained: essence };
+    }
+
+    const added = addItem(inventory, equipment);
+    if (!added) {
+        return { action: 'failed', essenceGained: 0 };
+    }
+    return { action: 'added', essenceGained: 0 };
 }
 
 /** 移除物品 */
@@ -84,4 +138,101 @@ export function sellByRarity(inventory: InventoryData, maxRarity: string, sellPr
     inventory.gold += totalGold;
 
     return totalGold;
+}
+
+/** 查询背包物品（筛选 + 排序） */
+export function queryInventoryItems(inventory: InventoryData, query: InventoryQuery): InventoryItem[] {
+    const rarityFilter = query.rarity ?? 'all';
+    const slotFilter = query.slot ?? 'all';
+    const sortBy = query.sortBy ?? 'slot';
+    const sortOrder = query.sortOrder ?? 'asc';
+
+    const result = inventory.items.filter((inventoryItem) => {
+        if (rarityFilter !== 'all' && inventoryItem.item.rarity !== rarityFilter) {
+            return false;
+        }
+        if (slotFilter !== 'all' && inventoryItem.item.slot !== slotFilter) {
+            return false;
+        }
+        return true;
+    });
+
+    result.sort((a, b) => {
+        let delta = 0;
+        if (sortBy === 'slot') {
+            delta = a.slotIndex - b.slotIndex;
+        } else if (sortBy === 'rarity') {
+            delta = RARITY_ORDER[a.item.rarity] - RARITY_ORDER[b.item.rarity];
+            if (delta === 0) {
+                delta = b.item.level - a.item.level;
+            }
+        } else {
+            delta = a.item.level - b.item.level;
+            if (delta === 0) {
+                delta = RARITY_ORDER[a.item.rarity] - RARITY_ORDER[b.item.rarity];
+            }
+        }
+        return sortOrder === 'asc' ? delta : -delta;
+    });
+
+    return result;
+}
+
+/** 手动拆解单件装备 */
+export function dismantleOne(inventory: InventoryData, equipmentId: string): number {
+    const index = inventory.items.findIndex(i => i.item.id === equipmentId);
+    if (index === -1) return 0;
+
+    const target = inventory.items[index];
+    const essence = dismantleValue(target.item);
+    inventory.items.splice(index, 1);
+    inventory.dismantleEssence += essence;
+    return essence;
+}
+
+/** 手动拆解指定稀有度及以下装备 */
+export function dismantleByRarity(inventory: InventoryData, maxRarity: Rarity): { count: number; essence: number } {
+    const maxOrder = RARITY_ORDER[maxRarity];
+    let count = 0;
+    let essence = 0;
+
+    const remain: InventoryItem[] = [];
+    for (const item of inventory.items) {
+        if (RARITY_ORDER[item.item.rarity] <= maxOrder) {
+            count += 1;
+            essence += dismantleValue(item.item);
+        } else {
+            remain.push(item);
+        }
+    }
+
+    if (count > 0) {
+        inventory.items = remain;
+        inventory.dismantleEssence += essence;
+    }
+
+    return { count, essence };
+}
+
+/** 是否触发自动拆解 */
+export function shouldAutoDismantle(inventory: InventoryData, equipment: Equipment): boolean {
+    if (!inventory.autoDismantleEnabled) return false;
+    return RARITY_ORDER[equipment.rarity] <= RARITY_ORDER[inventory.autoDismantleMaxRarity];
+}
+
+/** 兼容旧存档字段 */
+export function normalizeInventoryData(inventory: InventoryData): void {
+    if (typeof inventory.dismantleEssence !== 'number') {
+        inventory.dismantleEssence = 0;
+    }
+    if (typeof inventory.autoDismantleEnabled !== 'boolean') {
+        inventory.autoDismantleEnabled = false;
+    }
+    if (inventory.autoDismantleMaxRarity === undefined) {
+        inventory.autoDismantleMaxRarity = 'common';
+    }
+}
+
+function dismantleValue(equipment: Equipment): number {
+    return DISMANTLE_ESSENCE_BY_RARITY[equipment.rarity];
 }

@@ -6,10 +6,12 @@ import {
     type Equipment,
     type ExploreState,
     type EquipSlot,
+    type WearableSlot,
     type Rarity,
     getZoneForFloor,
     RARITY_CONFIG,
     EQUIP_SLOTS,
+    INVENTORY_CAPACITY,
     sellPrice,
 } from '../models';
 import {
@@ -44,9 +46,16 @@ import {
 import {
     createInventory,
     addItem,
+    addItemWithAutoDismantle,
+    dismantleOne,
+    dismantleByRarity,
+    normalizeInventoryData,
     removeItem,
     isFull,
     sellByRarity,
+    queryInventoryItems,
+    type InventorySortBy,
+    type InventorySortOrder,
     type InventoryData,
 } from '../systems/inventory-system';
 import {
@@ -177,6 +186,11 @@ export class Game extends Scene {
     uiPanel: Phaser.GameObjects.Container | null = null;
     tooltipContainer: Phaser.GameObjects.Container | null = null;
     isUIOpen = false;
+    inventoryRarityFilter: Rarity | 'all' = 'all';
+    inventorySlotFilter: WearableSlot | 'all' = 'all';
+    inventorySortBy: InventorySortBy = 'rarity';
+    inventorySortOrder: InventorySortOrder = 'desc';
+    inventoryPage = 0;
     gameplayPhase: GameplayPhase = 'town';
     townOverlay: Phaser.GameObjects.Container | null = null;
     autoEnterNextFloor = false;
@@ -201,6 +215,7 @@ export class Game extends Scene {
         if (saved) {
             this.character = saved.character;
             this.inventory = saved.inventory;
+            normalizeInventoryData(this.inventory);
             this.equipped = saved.equipped;
             this.dungeon = saved.dungeon;
             this.consumables = saved.consumables ?? [];
@@ -481,9 +496,16 @@ export class Game extends Scene {
             while (this.lootItems.length > 0) {
                 const loot = this.lootItems.pop()!;
                 if (!isFull(this.inventory)) {
-                    addItem(this.inventory, loot.equipment);
-                    this.dungeonRunSummary.pickedEquipments.push(loot.equipment);
-                    this.showPickupText(loot.x, loot.y, loot.equipment);
+                    const addResult = addItemWithAutoDismantle(this.inventory, loot.equipment);
+                    if (addResult.action === 'dismantled') {
+                        this.log(`自动拆解 ${loot.equipment.name}，获得 ${addResult.essenceGained} 精华`);
+                    } else if (addResult.action === 'added') {
+                        this.dungeonRunSummary.pickedEquipments.push(loot.equipment);
+                        this.showPickupText(loot.x, loot.y, loot.equipment);
+                    } else {
+                        this.lootItems.push(loot);
+                        break;
+                    }
                     loot.sprite.destroy();
                 } else {
                     this.lootItems.push(loot);
@@ -1272,18 +1294,154 @@ export class Game extends Scene {
         elements.push(panelBg);
 
         // 标题
-        const title = this.add.text(512, 60, `背包 (${this.inventory.items.length}/40)`, { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5).setDepth(202);
+        const title = this.add.text(512, 60, `背包 (${this.inventory.items.length}/${INVENTORY_CAPACITY})`, { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5).setDepth(202);
         elements.push(title);
+        const essenceText = this.add.text(230, 62, `拆解精华: ${this.inventory.dismantleEssence}`, { fontSize: '12px', color: '#f39c12' }).setDepth(202);
+        elements.push(essenceText);
 
         // 关闭按钮
         const closeBtn = this.add.text(890, 50, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
         closeBtn.on('pointerdown', () => this.closeUI());
         elements.push(closeBtn);
 
-        // 物品格子 5x8
+        const rarityOptions: { label: string; value: Rarity | 'all' }[] = [
+            { label: '全部', value: 'all' },
+            { label: '白', value: 'common' },
+            { label: '蓝', value: 'magic' },
+            { label: '黄', value: 'rare' },
+            { label: '传说', value: 'legendary' },
+            { label: '神话', value: 'mythic' },
+        ];
+        const rarityTitle = this.add.text(420, 82, '稀有度:', { fontSize: '11px', color: '#95a5a6' }).setDepth(202);
+        elements.push(rarityTitle);
+        for (let i = 0; i < rarityOptions.length; i++) {
+            const option = rarityOptions[i];
+            const active = this.inventoryRarityFilter === option.value;
+            const btn = this.add.text(470 + i * 62, 82, `[${option.label}]`, {
+                fontSize: '11px',
+                color: active ? '#f1c40f' : '#bdc3c7',
+            }).setDepth(202).setInteractive({ useHandCursor: true });
+            btn.on('pointerdown', () => {
+                this.inventoryRarityFilter = option.value;
+                this.inventoryPage = 0;
+                this.openInventoryPanel();
+            });
+            elements.push(btn);
+        }
+
+        const slotOptions: { label: string; value: WearableSlot | 'all' }[] = [
+            { label: '全部', value: 'all' },
+            { label: '武器', value: 'weapon' },
+            { label: '防具', value: 'armor' },
+            { label: '饰品', value: 'ring' },
+            { label: '头盔', value: 'helmet' },
+            { label: '手套', value: 'gloves' },
+            { label: '项链', value: 'necklace' },
+            { label: '靴子', value: 'boots' },
+        ];
+        const slotTitle = this.add.text(420, 102, '类型:', { fontSize: '11px', color: '#95a5a6' }).setDepth(202);
+        elements.push(slotTitle);
+        for (let i = 0; i < slotOptions.length; i++) {
+            const option = slotOptions[i];
+            const active = this.inventorySlotFilter === option.value;
+            const btn = this.add.text(460 + i * 56, 102, `[${option.label}]`, {
+                fontSize: '10px',
+                color: active ? '#2ecc71' : '#bdc3c7',
+            }).setDepth(202).setInteractive({ useHandCursor: true });
+            btn.on('pointerdown', () => {
+                this.inventorySlotFilter = option.value;
+                this.inventoryPage = 0;
+                this.openInventoryPanel();
+            });
+            elements.push(btn);
+        }
+
+        const sortTitle = this.add.text(420, 122, '排序:', { fontSize: '11px', color: '#95a5a6' }).setDepth(202);
+        elements.push(sortTitle);
+        const sortOptions: { label: string; value: InventorySortBy }[] = [
+            { label: '稀有度', value: 'rarity' },
+            { label: '等级', value: 'level' },
+            { label: '格位', value: 'slot' },
+        ];
+        for (let i = 0; i < sortOptions.length; i++) {
+            const option = sortOptions[i];
+            const active = this.inventorySortBy === option.value;
+            const btn = this.add.text(460 + i * 70, 122, `[${option.label}]`, {
+                fontSize: '10px',
+                color: active ? '#3498db' : '#bdc3c7',
+            }).setDepth(202).setInteractive({ useHandCursor: true });
+            btn.on('pointerdown', () => {
+                this.inventorySortBy = option.value;
+                this.inventoryPage = 0;
+                this.openInventoryPanel();
+            });
+            elements.push(btn);
+        }
+
+        const sortOrderBtn = this.add.text(680, 122, this.inventorySortOrder === 'desc' ? '[倒序]' : '[升序]', {
+            fontSize: '10px',
+            color: '#9b59b6',
+        }).setDepth(202).setInteractive({ useHandCursor: true });
+        sortOrderBtn.on('pointerdown', () => {
+            this.inventorySortOrder = this.inventorySortOrder === 'desc' ? 'asc' : 'desc';
+            this.inventoryPage = 0;
+            this.openInventoryPanel();
+        });
+        elements.push(sortOrderBtn);
+
+        const displayedItems = queryInventoryItems(this.inventory, {
+            rarity: this.inventoryRarityFilter,
+            slot: this.inventorySlotFilter,
+            sortBy: this.inventorySortBy,
+            sortOrder: this.inventorySortOrder,
+        });
+
+        const pageSize = 40;
+        const totalPages = Math.max(1, Math.ceil(displayedItems.length / pageSize));
+        if (this.inventoryPage >= totalPages) {
+            this.inventoryPage = totalPages - 1;
+        }
+        if (this.inventoryPage < 0) {
+            this.inventoryPage = 0;
+        }
+
+        const pageInfo = this.add.text(770, 122, `${this.inventoryPage + 1}/${totalPages}`, {
+            fontSize: '10px',
+            color: '#95a5a6',
+        }).setDepth(202);
+        elements.push(pageInfo);
+
+        const prevPage = this.add.text(730, 122, '[<]', {
+            fontSize: '10px',
+            color: this.inventoryPage > 0 ? '#3498db' : '#555555',
+        }).setDepth(202).setInteractive({ useHandCursor: this.inventoryPage > 0 });
+        if (this.inventoryPage > 0) {
+            prevPage.on('pointerdown', () => {
+                this.inventoryPage -= 1;
+                this.openInventoryPanel();
+            });
+        }
+        elements.push(prevPage);
+
+        const nextPage = this.add.text(810, 122, '[>]', {
+            fontSize: '10px',
+            color: this.inventoryPage < totalPages - 1 ? '#3498db' : '#555555',
+        }).setDepth(202).setInteractive({ useHandCursor: this.inventoryPage < totalPages - 1 });
+        if (this.inventoryPage < totalPages - 1) {
+            nextPage.on('pointerdown', () => {
+                this.inventoryPage += 1;
+                this.openInventoryPanel();
+            });
+        }
+        elements.push(nextPage);
+
+        const start = this.inventoryPage * pageSize;
+        const pageItems = displayedItems.slice(start, start + pageSize);
+
+        // 物品格子 5x8（按筛选与排序结果展示）
         const cellSize = 52;
         const startX = 420;
-        const startY = 95;
+        const startY = 150;
 
         for (let row = 0; row < 5; row++) {
             for (let col = 0; col < 8; col++) {
@@ -1294,7 +1452,7 @@ export class Game extends Scene {
                 const cell = this.add.rectangle(cx, cy, cellSize, cellSize, 0x2a2a3e).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x4a4a6a);
                 elements.push(cell);
 
-                const item = this.inventory.items.find(i => i.slotIndex === idx);
+                const item = pageItems[idx];
                 if (item) {
                     const rarityColor = RARITY_CONFIG[item.item.rarity].color;
                     const itemBg = this.add.rectangle(cx + 2, cy + 2, cellSize - 4, cellSize - 4, parseInt(rarityColor.replace('#', ''), 16) & 0x555555).setOrigin(0).setDepth(203);
@@ -1308,16 +1466,37 @@ export class Game extends Scene {
 
                     // 点击装备
                     const hitArea = this.add.rectangle(cx + cellSize / 2, cy + cellSize / 2, cellSize, cellSize, 0x000000, 0).setDepth(205).setInteractive();
-                    hitArea.on('pointerdown', () => this.onInventoryItemClick(item.item));
-                    hitArea.on('pointerover', () => this.showTooltip(item.item, cx + cellSize + 10, cy));
+                    hitArea.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+                        const mouseEvent = pointer.event as MouseEvent | undefined;
+                        const shiftPressed = mouseEvent?.shiftKey ?? false;
+                        if (shiftPressed) {
+                            if (!this.canDismantleInCurrentPhase()) return;
+                            const essence = dismantleOne(this.inventory, item.item.id);
+                            if (essence > 0) {
+                                this.log(`拆解 ${item.item.name}，获得 ${essence} 精华`);
+                            }
+                            this.openInventoryPanel();
+                            return;
+                        }
+                        this.onInventoryItemClick(item.item);
+                    });
+                    hitArea.on('pointerover', () => this.showTooltip(item.item, cx + cellSize + 10, cy, this.getCompareTarget(item.item)));
                     hitArea.on('pointerout', () => this.hideTooltip());
                     elements.push(hitArea);
                 }
             }
         }
 
+        if (displayedItems.length === 0) {
+            const emptyText = this.add.text(640, 290, '当前筛选下无装备', {
+                fontSize: '14px',
+                color: '#95a5a6',
+            }).setOrigin(0.5).setDepth(202);
+            elements.push(emptyText);
+        }
+
         // 详情区域（左侧）
-        const detailTitle = this.add.text(130, 95, '点击物品装备/查看', { fontSize: '12px', color: '#95a5a6' }).setDepth(202);
+        const detailTitle = this.add.text(130, 95, '点击装备 / Shift+点击拆解', { fontSize: '12px', color: '#95a5a6' }).setDepth(202);
         elements.push(detailTitle);
 
         // 已装备快捷显示
@@ -1340,6 +1519,67 @@ export class Game extends Scene {
             ey += 18;
         }
 
+        const dismantleTitle = this.add.text(130, ey + 10, '手动拆解:', { fontSize: '14px', color: '#e67e22' }).setDepth(202);
+        elements.push(dismantleTitle);
+
+        const canDismantle = this.gameplayPhase === 'town';
+        const manualBtns: { label: string; rarity: Rarity; color: string }[] = [
+            { label: '拆白装', rarity: 'common', color: '#9d9d9d' },
+            { label: '拆白+蓝', rarity: 'magic', color: '#3498db' },
+            { label: '拆<=黄', rarity: 'rare', color: '#f1c40f' },
+        ];
+
+        let dy = ey + 34;
+        for (const button of manualBtns) {
+            const btn = this.add.text(130, dy, `[${button.label}]`, {
+                fontSize: '12px',
+                color: canDismantle ? button.color : '#555555',
+            }).setDepth(202).setInteractive({ useHandCursor: canDismantle });
+            if (canDismantle) {
+                btn.on('pointerdown', () => {
+                    const result = dismantleByRarity(this.inventory, button.rarity);
+                    if (result.count > 0) {
+                        this.log(`拆解 ${result.count} 件装备，获得 ${result.essence} 精华`);
+                    } else {
+                        this.log('没有可拆解的装备');
+                    }
+                    this.openInventoryPanel();
+                });
+            }
+            elements.push(btn);
+            dy += 22;
+        }
+
+        const autoTitle = this.add.text(130, dy + 8, '自动拆解:', { fontSize: '14px', color: '#e67e22' }).setDepth(202);
+        elements.push(autoTitle);
+        dy += 32;
+
+        const autoToggleBtn = this.add.text(130, dy, this.inventory.autoDismantleEnabled ? '[已开启]' : '[已关闭]', {
+            fontSize: '12px',
+            color: this.inventory.autoDismantleEnabled ? '#2ecc71' : '#95a5a6',
+        }).setDepth(202).setInteractive({ useHandCursor: true });
+        autoToggleBtn.on('pointerdown', () => {
+            this.inventory.autoDismantleEnabled = !this.inventory.autoDismantleEnabled;
+            this.openInventoryPanel();
+        });
+        elements.push(autoToggleBtn);
+
+        const autoRarityBtn = this.add.text(220, dy, `[阈值:${this.inventory.autoDismantleMaxRarity}]`, {
+            fontSize: '12px',
+            color: '#3498db',
+        }).setDepth(202).setInteractive({ useHandCursor: true });
+        autoRarityBtn.on('pointerdown', () => {
+            this.inventory.autoDismantleMaxRarity = this.nextAutoDismantleRarity(this.inventory.autoDismantleMaxRarity);
+            this.openInventoryPanel();
+        });
+        elements.push(autoRarityBtn);
+
+        const phaseHint = this.add.text(130, dy + 22, canDismantle ? '当前可在主城进行手动拆解' : '地牢中禁止手动拆解', {
+            fontSize: '11px',
+            color: canDismantle ? '#7f8c8d' : '#e74c3c',
+        }).setDepth(202);
+        elements.push(phaseHint);
+
         const panelRect: PanelRect = { x: 100, y: 40, width: 824, height: 680 };
         this.createManagedPanel(elements, panelRect, panelBg);
 
@@ -1348,6 +1588,70 @@ export class Game extends Scene {
     private slotShortName(slot: string): string {
         const map: Record<string, string> = { helmet: '盔', armor: '甲', gloves: '手', belt: '腰', legs: '腿', boots: '靴', weapon: '武', necklace: '链', ring: '戒' };
         return map[slot] ?? '?';
+    }
+
+    private canDismantleInCurrentPhase(): boolean {
+        if (this.gameplayPhase !== 'town') {
+            this.log('请先回到主城再进行装备拆解');
+            return false;
+        }
+        return true;
+    }
+
+    private nextAutoDismantleRarity(current: Rarity): Rarity {
+        const order: Rarity[] = ['common', 'magic', 'rare', 'legendary', 'mythic'];
+        const currentIndex = order.indexOf(current);
+        const nextIndex = (currentIndex + 1) % order.length;
+        return order[nextIndex];
+    }
+
+    private getCompareTarget(equipment: Equipment): Equipment | null {
+        if (equipment.slot === 'ring') {
+            const ring1 = getEquipped(this.equipped, 'ring1');
+            const ring2 = getEquipped(this.equipped, 'ring2');
+            if (!ring1) return ring2;
+            if (!ring2) return ring1;
+            return ring1.level <= ring2.level ? ring1 : ring2;
+        }
+        return getEquipped(this.equipped, equipment.slot as EquipSlot);
+    }
+
+    private equipmentTotalStats(equipment: Equipment): Record<'atk' | 'def' | 'hp' | 'attackSpeed' | 'critRate' | 'critDamage' | 'moveSpeed', number> {
+        const result = {
+            atk: equipment.baseStats.atk ?? 0,
+            def: equipment.baseStats.def ?? 0,
+            hp: equipment.baseStats.hp ?? 0,
+            attackSpeed: equipment.baseStats.attackSpeed ?? 0,
+            critRate: equipment.baseStats.critRate ?? 0,
+            critDamage: equipment.baseStats.critDamage ?? 0,
+            moveSpeed: equipment.baseStats.moveSpeed ?? 0,
+        };
+
+        for (const affix of equipment.affixes) {
+            switch (affix.id) {
+                case 'strength':
+                case 'berserk':
+                    result.atk += affix.value;
+                    break;
+                case 'toughness':
+                    result.def += affix.value;
+                    break;
+                case 'vitality':
+                    result.hp += affix.value;
+                    break;
+                case 'attackSpeed':
+                    result.attackSpeed += affix.value;
+                    break;
+                case 'crit':
+                    result.critRate += affix.value;
+                    break;
+                case 'critDamage':
+                    result.critDamage += affix.value;
+                    break;
+            }
+        }
+
+        return result;
     }
 
     private onInventoryItemClick(equipment: Equipment) {
@@ -1559,13 +1863,16 @@ export class Game extends Scene {
 
     // ─── Tooltip ───
 
-    private showTooltip(equipment: Equipment, x: number, y: number) {
+    private showTooltip(equipment: Equipment, x: number, y: number, compareWith: Equipment | null = null) {
         this.hideTooltip();
 
         const elements: Phaser.GameObjects.GameObject[] = [];
         const width = 220;
-        let lineCount = 4 + equipment.affixes.length; // name + slot + rarity + baseStat lines + affixes
-        const height = 40 + lineCount * 18;
+        let lineCount = 4 + equipment.affixes.length;
+        if (compareWith) {
+            lineCount += 8;
+        }
+        const height = 40 + lineCount * 16;
 
         const bg = this.add.rectangle(x, y, width, height, 0x111122, 0.95).setOrigin(0).setDepth(DEPTH.UI_TOOLTIP).setStrokeStyle(1, parseInt(RARITY_CONFIG[equipment.rarity].color.replace('#', ''), 16));
         elements.push(bg);
@@ -1609,6 +1916,37 @@ export class Game extends Scene {
                 const text = this.add.text(x + 10, ty, `• ${affix.name}: +${affix.value}`, { fontSize: '11px', color }).setDepth(DEPTH.UI_TOOLTIP + 1);
                 elements.push(text);
                 ty += 16;
+            }
+        }
+
+        if (compareWith) {
+            ty += 4;
+            const sep = this.add.text(x + 10, ty, '──── 对比当前装备 ────', { fontSize: '10px', color: '#555555' }).setDepth(DEPTH.UI_TOOLTIP + 1);
+            elements.push(sep);
+            ty += 16;
+
+            const targetStats = this.equipmentTotalStats(compareWith);
+            const candidateStats = this.equipmentTotalStats(equipment);
+            const compareLines: { label: string; delta: number; unit?: string }[] = [
+                { label: 'ATK', delta: candidateStats.atk - targetStats.atk },
+                { label: 'DEF', delta: candidateStats.def - targetStats.def },
+                { label: 'HP', delta: candidateStats.hp - targetStats.hp },
+                { label: 'AS', delta: candidateStats.attackSpeed - targetStats.attackSpeed, unit: '%' },
+                { label: 'CR', delta: candidateStats.critRate - targetStats.critRate, unit: '%' },
+                { label: 'CD', delta: candidateStats.critDamage - targetStats.critDamage, unit: '%' },
+                { label: 'MS', delta: candidateStats.moveSpeed - targetStats.moveSpeed },
+            ];
+
+            for (const line of compareLines) {
+                if (line.delta === 0) continue;
+                const color = line.delta > 0 ? '#2ecc71' : '#e74c3c';
+                const sign = line.delta > 0 ? '+' : '';
+                const text = this.add.text(x + 10, ty, `${line.label}: ${sign}${line.delta}${line.unit ?? ''}`, {
+                    fontSize: '11px',
+                    color,
+                }).setDepth(DEPTH.UI_TOOLTIP + 1);
+                elements.push(text);
+                ty += 14;
             }
         }
 
