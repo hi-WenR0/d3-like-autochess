@@ -209,9 +209,10 @@ export class Game extends Scene {
         super('Game');
     }
 
-    create() {
+    create(data?: { newGame?: boolean }) {
+        const forceNewGame = data?.newGame ?? false;
         // 尝试加载存档
-        const saved = loadGame();
+        const saved = forceNewGame ? null : loadGame();
         if (saved) {
             this.character = saved.character;
             this.inventory = saved.inventory;

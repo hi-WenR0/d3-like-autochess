@@ -4,8 +4,11 @@ import type { DungeonState } from '../models/dungeon';
 import type { Consumable } from '../models/consumable';
 import type { EquippedItems } from './equip-system';
 
-const SAVE_KEY = 'darklike_save';
+const LEGACY_SAVE_KEY = 'darklike_save';
+const SAVE_KEY_PREFIX = 'darklike_save_slot_';
+export const MAX_SAVE_SLOTS = 20;
 const AUTO_SAVE_INTERVAL = 30_000; // 30秒自动保存
+let currentSaveSlot = 1;
 
 export interface SaveData {
     version: number;
@@ -20,13 +23,41 @@ export interface SaveData {
 
 const CURRENT_VERSION = 2;
 
+export interface SaveSlotSummary {
+    slotId: number;
+    hasSave: boolean;
+    timestamp: number | null;
+    level: number | null;
+    floor: number | null;
+    name: string | null;
+}
+
+function normalizeSlot(slotId: number): number {
+    if (!Number.isFinite(slotId)) return 1;
+    const intSlot = Math.floor(slotId);
+    return Math.min(MAX_SAVE_SLOTS, Math.max(1, intSlot));
+}
+
+function slotKey(slotId: number): string {
+    return `${SAVE_KEY_PREFIX}${String(normalizeSlot(slotId)).padStart(2, '0')}`;
+}
+
+export function setCurrentSaveSlot(slotId: number): number {
+    currentSaveSlot = normalizeSlot(slotId);
+    return currentSaveSlot;
+}
+
+export function getCurrentSaveSlot(): number {
+    return currentSaveSlot;
+}
+
 /** 保存游戏到 LocalStorage */
-export function saveGame(data: SaveData): boolean {
+export function saveGame(data: SaveData, slotId = currentSaveSlot): boolean {
     try {
         data.version = CURRENT_VERSION;
         data.timestamp = Date.now();
         const json = JSON.stringify(data);
-        localStorage.setItem(SAVE_KEY, json);
+        localStorage.setItem(slotKey(slotId), json);
         return true;
     } catch {
         console.warn('存档保存失败');
@@ -35,9 +66,12 @@ export function saveGame(data: SaveData): boolean {
 }
 
 /** 读取存档，无存档返回 null */
-export function loadGame(): SaveData | null {
+export function loadGame(slotId = currentSaveSlot): SaveData | null {
     try {
-        const json = localStorage.getItem(SAVE_KEY);
+        let json = localStorage.getItem(slotKey(slotId));
+        if (!json && normalizeSlot(slotId) === 1) {
+            json = localStorage.getItem(LEGACY_SAVE_KEY);
+        }
         if (!json) return null;
         const data = JSON.parse(json) as SaveData;
         if (data.version !== CURRENT_VERSION) {
@@ -52,13 +86,33 @@ export function loadGame(): SaveData | null {
 }
 
 /** 删除存档 */
-export function deleteSave(): void {
-    localStorage.removeItem(SAVE_KEY);
+export function deleteSave(slotId = currentSaveSlot): void {
+    localStorage.removeItem(slotKey(slotId));
+    if (normalizeSlot(slotId) === 1) {
+        localStorage.removeItem(LEGACY_SAVE_KEY);
+    }
 }
 
 /** 是否存在存档 */
-export function hasSave(): boolean {
-    return localStorage.getItem(SAVE_KEY) !== null;
+export function hasSave(slotId = currentSaveSlot): boolean {
+    if (localStorage.getItem(slotKey(slotId)) !== null) return true;
+    return normalizeSlot(slotId) === 1 && localStorage.getItem(LEGACY_SAVE_KEY) !== null;
+}
+
+export function listSaveSlots(): SaveSlotSummary[] {
+    const slots: SaveSlotSummary[] = [];
+    for (let slotId = 1; slotId <= MAX_SAVE_SLOTS; slotId++) {
+        const data = loadGame(slotId);
+        slots.push({
+            slotId,
+            hasSave: data !== null,
+            timestamp: data?.timestamp ?? null,
+            level: data?.character.level ?? null,
+            floor: data?.dungeon.currentFloor ?? null,
+            name: data?.character.name ?? null,
+        });
+    }
+    return slots;
 }
 
 /** 计算离线时长（毫秒） */
