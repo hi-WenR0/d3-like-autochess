@@ -17,6 +17,7 @@ import {
     ADVANCEMENT_REQUIREMENT_LEVEL,
     getSpecializationDef,
     getCombatStyleProfile,
+    getAllowedClassesForEquipment,
     EQUIP_SLOTS,
     INVENTORY_CAPACITY,
     sellPrice,
@@ -72,6 +73,7 @@ import {
 import {
     createEquippedItems,
     equipItem,
+    canEquipItem,
     unequipItem,
     getEquipped,
     findAvailableRingSlot,
@@ -231,6 +233,7 @@ export class Game extends Scene {
             this.inventory = saved.inventory;
             normalizeInventoryData(this.inventory);
             this.equipped = saved.equipped;
+            this.normalizeEquippedClassRestrictions();
             this.dungeon = saved.dungeon;
             this.consumables = saved.consumables ?? [];
             this.activeBuffs = [];
@@ -275,6 +278,18 @@ export class Game extends Scene {
             consumables: this.consumables,
             totalPlayTime: 0,
         };
+    }
+
+    private normalizeEquippedClassRestrictions() {
+        Object.entries(this.equipped).forEach(([slot, equipment]) => {
+            if (!equipment || canEquipItem(this.character.baseClass, equipment)) {
+                return;
+            }
+
+            if (addItem(this.inventory, equipment)) {
+                delete this.equipped[slot as EquipSlot];
+            }
+        });
     }
 
     update(time: number, delta: number) {
@@ -1992,6 +2007,11 @@ export class Game extends Scene {
     }
 
     private onInventoryItemClick(equipment: Equipment) {
+        if (!canEquipItem(this.character.baseClass, equipment)) {
+            this.log(`当前职业无法装备 ${equipment.name}`);
+            return;
+        }
+
         // 穿戴装备
         if (equipment.slot === 'ring') {
             const ringSlot = findAvailableRingSlot(this.equipped);
@@ -2255,6 +2275,10 @@ export class Game extends Scene {
         const elements: Phaser.GameObjects.GameObject[] = [];
         const width = 220;
         let lineCount = 4 + equipment.affixes.length;
+        const allowedClasses = getAllowedClassesForEquipment(equipment);
+        if (allowedClasses && allowedClasses.length > 0) {
+            lineCount += 1;
+        }
         if (compareWith) {
             lineCount += 8;
         }
@@ -2270,6 +2294,12 @@ export class Game extends Scene {
         elements.push(slotText);
 
         let ty = y + 48;
+        if (allowedClasses && allowedClasses.length > 0) {
+            const classNames = allowedClasses.map(classId => BASE_CLASS_CONFIG[classId].label).join(' / ');
+            const classText = this.add.text(x + 10, ty, `职业限制: ${classNames}`, { fontSize: '11px', color: '#f39c12' }).setDepth(DEPTH.UI_TOOLTIP + 1);
+            elements.push(classText);
+            ty += 16;
+        }
 
         // 基础属性
         const statEntries: [string, number | undefined][] = [

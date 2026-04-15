@@ -1,4 +1,5 @@
-import type { Equipment, EquipSlot } from '../models';
+import type { CharacterBaseClass, Equipment, EquipSlot } from '../models';
+import { getAllowedClassesForEquipment } from '../models';
 
 /** 已装备的装备映射 */
 export type EquippedItems = Partial<Record<EquipSlot, Equipment>>;
@@ -13,6 +14,11 @@ export function equipItem(equipped: EquippedItems, slot: EquipSlot, equipment: E
     const previous = equipped[slot] ?? null;
     equipped[slot] = equipment;
     return previous; // 返回被替换的装备
+}
+
+export function canEquipItem(baseClass: CharacterBaseClass, equipment: Equipment): boolean {
+    const allowedClasses = getAllowedClassesForEquipment(equipment);
+    return !allowedClasses || allowedClasses.includes(baseClass);
 }
 
 /** 卸下指定槽位装备 */

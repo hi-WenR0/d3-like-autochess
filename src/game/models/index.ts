@@ -22,7 +22,7 @@ export {
 } from './character';
 
 export type { EquipSlot, WearableSlot, WeaponType, Rarity, RarityDef, EquipBaseStats, EquipBaseStatsRange, Equipment } from './equipment';
-export { EQUIP_SLOTS, SLOT_TO_WEARABLE, RARITY_CONFIG, sellPrice } from './equipment';
+export { EQUIP_SLOTS, SLOT_TO_WEARABLE, RARITY_CONFIG, WEAPON_CLASS_RESTRICTIONS, getAllowedClassesForEquipment, sellPrice } from './equipment';
 
 export type { AffixId, AffixCategory, AffixDef, Affix } from './affix';
 export { OFFENSIVE_AFFIXES, DEFENSIVE_AFFIXES, SPECIAL_AFFIXES, ALL_AFFIXES } from './affix';

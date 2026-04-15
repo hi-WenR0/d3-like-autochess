@@ -4,6 +4,7 @@ import type { DungeonState } from '../models/dungeon';
 import type { Consumable } from '../models/consumable';
 import type { EquippedItems } from './equip-system';
 import { normalizeCharacterData } from './character-system';
+import { getAllowedClassesForEquipment } from '../models';
 
 const LEGACY_SAVE_KEY = 'darklike_save';
 const SAVE_KEY_PREFIX = 'darklike_save_slot_';
@@ -81,6 +82,13 @@ export function loadGame(slotId = currentSaveSlot): SaveData | null {
         }
         data.version = CURRENT_VERSION;
         data.character = normalizeCharacterData(data.character);
+        Object.values(data.equipped).forEach((equipment) => {
+            if (!equipment) return;
+            equipment.allowedClasses = getAllowedClassesForEquipment(equipment);
+        });
+        data.inventory.items.forEach((item) => {
+            item.item.allowedClasses = getAllowedClassesForEquipment(item.item);
+        });
         data.consumables = data.consumables ?? [];
         data.totalPlayTime = data.totalPlayTime ?? 0;
         return data;

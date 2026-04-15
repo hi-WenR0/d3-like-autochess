@@ -1,4 +1,5 @@
 import type { Affix } from './affix';
+import type { CharacterBaseClass } from './character';
 
 /** 装备部位 */
 export type EquipSlot = 'helmet' | 'armor' | 'gloves' | 'belt' | 'legs' | 'boots' | 'weapon' | 'necklace' | 'ring1' | 'ring2';
@@ -76,9 +77,25 @@ export interface Equipment {
     slot: WearableSlot;
     rarity: Rarity;
     weaponType?: WeaponType;
+    allowedClasses?: CharacterBaseClass[];
     baseStats: EquipBaseStats;
     affixes: Affix[];
     level: number;
+}
+
+export const WEAPON_CLASS_RESTRICTIONS: Readonly<Record<WeaponType, CharacterBaseClass[]>> = {
+    sword: ['berserker'],
+    greatsword: ['berserker'],
+    dagger: ['ranger'],
+    bow: ['ranger'],
+    staff: ['mage'],
+};
+
+export function getAllowedClassesForEquipment(equipment: Equipment): CharacterBaseClass[] | undefined {
+    if (equipment.slot !== 'weapon' || !equipment.weaponType) {
+        return equipment.allowedClasses;
+    }
+    return equipment.allowedClasses ?? WEAPON_CLASS_RESTRICTIONS[equipment.weaponType];
 }
 
 /** 装备出售价格 */

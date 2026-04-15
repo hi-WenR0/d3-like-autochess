@@ -1,5 +1,6 @@
 import {
     type Equipment,
+    type CharacterBaseClass,
     type Rarity,
     type WearableSlot,
     type WeaponType,
@@ -9,6 +10,7 @@ import {
     RARITY_CONFIG,
     ALL_AFFIXES,
     type EquipBaseStatsRange,
+    WEAPON_CLASS_RESTRICTIONS,
 } from '../models';
 import { type Monster, MONSTER_TYPE_CONFIG } from '../models';
 
@@ -90,6 +92,7 @@ export function generateEquipment(slot: WearableSlot, level: number, rarity: Rar
     const baseStats = rollBaseStats(slot, level);
     const affixes = rollAffixes(rarity);
     const name = generateName(slot, rarity, resolvedWeaponType);
+    const allowedClasses = resolveAllowedClasses(slot, resolvedWeaponType);
 
     return {
         id: generateItemId(),
@@ -97,6 +100,7 @@ export function generateEquipment(slot: WearableSlot, level: number, rarity: Rar
         slot,
         rarity,
         weaponType: resolvedWeaponType,
+        allowedClasses,
         baseStats,
         affixes,
         level,
@@ -113,6 +117,13 @@ export function randomSlot(): WearableSlot {
 function randomWeaponType(): WeaponType {
     const types: WeaponType[] = ['sword', 'greatsword', 'dagger', 'staff', 'bow'];
     return types[Math.floor(Math.random() * types.length)];
+}
+
+function resolveAllowedClasses(slot: WearableSlot, weaponType?: WeaponType): CharacterBaseClass[] | undefined {
+    if (slot !== 'weapon' || !weaponType) {
+        return undefined;
+    }
+    return [...WEAPON_CLASS_RESTRICTIONS[weaponType]];
 }
 
 /** 随机基础属性值 */
