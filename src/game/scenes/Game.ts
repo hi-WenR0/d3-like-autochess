@@ -145,6 +145,9 @@ export class Game extends Scene {
     // 自动保存
     autoSaveManager!: AutoSaveManager;
 
+    // 离线奖励定时器
+    private offlineRewardsTimer: Phaser.Time.TimerEvent | null = null;
+
     constructor() {
         super('Game');
     }
@@ -810,28 +813,42 @@ export class Game extends Scene {
     // ─── UI 面板系统 ───
 
     private closeUI() {
+        // 清除离线奖励定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
+        
         if (this.uiPanel) {
+            const panel = this.uiPanel;
+            this.uiPanel = null; // 立即清空引用，允许新面板设置
             // 淡出动画
             this.tweens.add({
-                targets: this.uiPanel,
+                targets: panel,
                 alpha: 0,
                 duration: 150,
                 onComplete: () => {
-                    this.uiPanel?.destroy(true);
-                    this.uiPanel = null;
+                    panel.destroy(true);
+                    // 如果没有新面板打开，则更新状态
+                    if (this.uiPanel === null) {
+                        this.isUIOpen = false;
+                        this.setDungeonVisibility(true);
+                    }
                 },
             });
-            this.uiPanel = null; // 防止重复关闭
+        } else {
+            this.isUIOpen = false;
+            this.setDungeonVisibility(true);
         }
         if (this.tooltipContainer) {
             this.tooltipContainer.destroy(true);
             this.tooltipContainer = null;
         }
-        this.isUIOpen = false;
     }
 
     /** 为面板添加打开动画 */
     private animatePanelOpen(panel: Phaser.GameObjects.Container) {
+        this.setDungeonVisibility(false);
         panel.setAlpha(0);
         this.tweens.add({
             targets: panel,
@@ -841,11 +858,43 @@ export class Game extends Scene {
         });
     }
 
+    /** 控制地牢游戏对象的可见性 */
+    private setDungeonVisibility(visible: boolean) {
+        // 玩家精灵
+        if (this.playerSprite && this.playerSprite.scene) {
+            this.playerSprite.setVisible(visible);
+        }
+        // 怪物精灵
+        this.monsterSprites.forEach(s => {
+            if (s && s.scene) {
+                s.setVisible(visible);
+            }
+        });
+        // 战利品精灵
+        this.lootItems.forEach(l => {
+            if (l.sprite && l.sprite.scene) {
+                l.sprite.setVisible(visible);
+            }
+        });
+        // 地板瓦片
+        this.floorTiles.forEach(t => {
+            if (t && t.scene) {
+                t.setVisible(visible);
+            }
+        });
+    }
+
     // ─── 背包面板 ───
 
     private openInventoryPanel() {
         this.closeUI();
         this.isUIOpen = true;
+
+        // 清除可能存在的定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -928,6 +977,13 @@ export class Game extends Scene {
 
         this.uiPanel = this.add.container(0, 0, elements);
         this.animatePanelOpen(this.uiPanel);
+
+        // 5秒后自动关闭
+        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
+            if (this.uiPanel) {
+                this.closeUI();
+            }
+        });
     }
 
     private slotShortName(slot: string): string {
@@ -980,6 +1036,12 @@ export class Game extends Scene {
     private openEquipPanel() {
         this.closeUI();
         this.isUIOpen = true;
+
+        // 清除可能存在的定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1038,6 +1100,13 @@ export class Game extends Scene {
 
         this.uiPanel = this.add.container(0, 0, elements);
         this.animatePanelOpen(this.uiPanel);
+
+        // 5秒后自动关闭
+        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
+            if (this.uiPanel) {
+                this.closeUI();
+            }
+        });
     }
 
     // ─── 属性面板 ───
@@ -1045,6 +1114,12 @@ export class Game extends Scene {
     private openStatsPanel() {
         this.closeUI();
         this.isUIOpen = true;
+
+        // 清除可能存在的定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1138,6 +1213,13 @@ export class Game extends Scene {
 
         this.uiPanel = this.add.container(0, 0, elements);
         this.animatePanelOpen(this.uiPanel);
+
+        // 5秒后自动关闭
+        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
+            if (this.uiPanel) {
+                this.closeUI();
+            }
+        });
     }
 
     // ─── Tooltip ───
@@ -1225,6 +1307,12 @@ export class Game extends Scene {
         this.closeUI();
         this.isUIOpen = true;
 
+        // 清除可能存在的定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
+
         const elements: Phaser.GameObjects.GameObject[] = [];
 
         const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.8).setOrigin(0).setDepth(200).setInteractive();
@@ -1252,6 +1340,13 @@ export class Game extends Scene {
 
         this.uiPanel = this.add.container(0, 0, elements);
         this.animatePanelOpen(this.uiPanel);
+
+        // 5秒后自动关闭
+        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
+            if (this.uiPanel) {
+                this.closeUI();
+            }
+        });
     }
 
     private resetGame() {
@@ -1284,6 +1379,12 @@ export class Game extends Scene {
         this.closeUI();
         this.isUIOpen = true;
 
+        // 清除可能存在的定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
+
         const elements: Phaser.GameObjects.GameObject[] = [];
 
         const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.8).setOrigin(0).setDepth(200).setInteractive();
@@ -1310,6 +1411,13 @@ export class Game extends Scene {
 
         this.uiPanel = this.add.container(0, 0, elements);
         this.animatePanelOpen(this.uiPanel);
+
+        // 5秒后自动关闭
+        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
+            if (this.uiPanel) {
+                this.closeUI();
+            }
+        });
     }
 
     // ─── 消耗品系统 ───
@@ -1368,6 +1476,12 @@ export class Game extends Scene {
     private openConsumablePanel() {
         this.closeUI();
         this.isUIOpen = true;
+
+        // 清除可能存在的定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1441,6 +1555,13 @@ export class Game extends Scene {
 
         this.uiPanel = this.add.container(0, 0, elements);
         this.animatePanelOpen(this.uiPanel);
+
+        // 5秒后自动关闭
+        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
+            if (this.uiPanel) {
+                this.closeUI();
+            }
+        });
     }
 
     // ─── 商店面板 ───
@@ -1448,6 +1569,12 @@ export class Game extends Scene {
     private openShopPanel() {
         this.closeUI();
         this.isUIOpen = true;
+
+        // 清除可能存在的定时器
+        if (this.offlineRewardsTimer) {
+            this.time.removeEvent(this.offlineRewardsTimer);
+            this.offlineRewardsTimer = null;
+        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1542,5 +1669,12 @@ export class Game extends Scene {
 
         this.uiPanel = this.add.container(0, 0, elements);
         this.animatePanelOpen(this.uiPanel);
+
+        // 5秒后自动关闭
+        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
+            if (this.uiPanel) {
+                this.closeUI();
+            }
+        });
     }
 }
