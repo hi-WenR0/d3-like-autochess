@@ -1,6 +1,7 @@
 import {
     type Monster,
     type MonsterType,
+    MONSTER_TYPE_CONFIG,
     MONSTER_SPAWN_WEIGHTS,
     monsterStatsForFloor,
 } from '../models';
@@ -18,6 +19,7 @@ export function spawnMonster(floor: number, x: number, y: number): Monster {
     const names = MONSTER_NAMES[type];
     const name = names[Math.floor(Math.random() * names.length)];
     const stats = monsterStatsForFloor(floor, type);
+    const monsterTypeConfig = MONSTER_TYPE_CONFIG[type];
 
     return {
         id: generateMonsterId(),
@@ -25,6 +27,7 @@ export function spawnMonster(floor: number, x: number, y: number): Monster {
         type,
         floor,
         stats,
+        movementStrategy: monsterTypeConfig.movementStrategy,
         x,
         y,
     };

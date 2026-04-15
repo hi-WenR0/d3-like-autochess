@@ -1,12 +1,13 @@
 /** 怪物类型 */
 export type MonsterType = 'normal' | 'elite' | 'rare' | 'boss';
+export type MovementStrategy = 'approach' | 'retreat';
 
 /** 怪物类型配置 */
 export const MONSTER_TYPE_CONFIG: Record<MonsterType, MonsterTypeDef> = {
-    normal: { hpMultiplier: 1.0,   atkMultiplier: 1.0,   skillCount: 0, guaranteedDrop: false, minDropRarity: 'common' },
-    elite:  { hpMultiplier: 1.5,   atkMultiplier: 1.2,   skillCount: 2, guaranteedDrop: true,  minDropRarity: 'magic' },
-    rare:   { hpMultiplier: 2.0,   atkMultiplier: 1.5,   skillCount: 3, guaranteedDrop: true,  minDropRarity: 'rare' },
-    boss:   { hpMultiplier: 5.0,   atkMultiplier: 2.0,   skillCount: 5, guaranteedDrop: true,  minDropRarity: 'legendary' },
+    normal: { hpMultiplier: 1.0,   atkMultiplier: 1.0,   skillCount: 0, guaranteedDrop: false, minDropRarity: 'common', movementStrategy: 'approach', moveSpeedMultiplier: 1.0 },
+    elite:  { hpMultiplier: 1.5,   atkMultiplier: 1.2,   skillCount: 2, guaranteedDrop: true,  minDropRarity: 'magic', movementStrategy: 'approach', moveSpeedMultiplier: 1.05 },
+    rare:   { hpMultiplier: 2.0,   atkMultiplier: 1.5,   skillCount: 3, guaranteedDrop: true,  minDropRarity: 'rare', movementStrategy: 'retreat', moveSpeedMultiplier: 0.95 },
+    boss:   { hpMultiplier: 5.0,   atkMultiplier: 2.0,   skillCount: 5, guaranteedDrop: true,  minDropRarity: 'legendary', movementStrategy: 'approach', moveSpeedMultiplier: 0.9 },
 };
 
 export interface MonsterTypeDef {
@@ -15,6 +16,8 @@ export interface MonsterTypeDef {
     skillCount: number;
     guaranteedDrop: boolean;
     minDropRarity: string;
+    movementStrategy: MovementStrategy;
+    moveSpeedMultiplier: number;
 }
 
 /** 怪物基础属性（第 1 层的基准值） */
@@ -23,6 +26,7 @@ export const MONSTER_BASE_STATS = {
     atk: 8,
     exp: 20,
     gold: 5,
+    moveSpeed: 72,
 };
 
 /** 根据层数计算怪物属性 */
@@ -35,6 +39,7 @@ export function monsterStatsForFloor(floor: number, type: MonsterType): MonsterS
         atk: Math.floor(base.atk * (1 + floor * 0.12) * cfg.atkMultiplier),
         exp: Math.floor(base.exp * (1 + floor * 0.1)),
         gold: Math.floor(base.gold * (1 + floor * 0.1)),
+        moveSpeed: Math.floor(base.moveSpeed * cfg.moveSpeedMultiplier),
     };
 }
 
@@ -45,6 +50,7 @@ export interface MonsterStats {
     atk: number;
     exp: number;
     gold: number;
+    moveSpeed: number;
 }
 
 /** 怪物实例 */
@@ -54,6 +60,7 @@ export interface Monster {
     type: MonsterType;
     floor: number;
     stats: MonsterStats;
+    movementStrategy: MovementStrategy;
     x: number;
     y: number;
 }

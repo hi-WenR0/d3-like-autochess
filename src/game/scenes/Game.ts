@@ -8,6 +8,7 @@ import {
     type EquipSlot,
     type WearableSlot,
     type Rarity,
+    type MovementStrategy,
     getZoneForFloor,
     RARITY_CONFIG,
     EQUIP_SLOTS,
@@ -109,6 +110,11 @@ const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
 const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
+const PLAYER_AI_APPROACH_DISTANCE = 56;
+const PLAYER_AI_RETREAT_DISTANCE = 170;
+const MONSTER_AI_APPROACH_DISTANCE = 52;
+const MONSTER_AI_RETREAT_DISTANCE = 145;
+const COMBAT_ENGAGE_DISTANCE = 84;
 
 const DEPTH = {
     WORLD_TILE: 0,
@@ -192,6 +198,7 @@ export class Game extends Scene {
     inventorySortBy: InventorySortBy = 'rarity';
     inventorySortOrder: InventorySortOrder = 'desc';
     inventoryPage = 0;
+    playerMovementStrategy: MovementStrategy = 'approach';
     gameplayPhase: GameplayPhase = 'town';
     townOverlay: Phaser.GameObjects.Container | null = null;
     autoEnterNextFloor = false;
@@ -289,7 +296,7 @@ export class Game extends Scene {
                 this.updateExploring(dt);
                 break;
             case 'fighting':
-                this.updateFighting(time);
+                this.updateFighting(time, dt);
                 break;
             case 'looting':
                 this.updateLooting();
@@ -457,13 +464,32 @@ export class Game extends Scene {
         this.movePlayerTowardMonster(dt);
     }
 
-    private updateFighting(time: number) {
+    private updateFighting(time: number, dt: number) {
         if (!this.currentMonster) {
             setExploreState(this.dungeon, 'exploring');
             return;
         }
 
+        const monsterSprite = this.monsterSprites.get(this.currentMonster.id);
+        if (!monsterSprite) {
+            this.currentMonster = null;
+            setExploreState(this.dungeon, 'exploring');
+            return;
+        }
+
         const stats = this.getCurrentStats();
+        this.updateCombatMovement(this.currentMonster, dt, stats.moveSpeed);
+
+        const distanceToTarget = PhaserMath.Distance.Between(
+            this.playerSprite.x,
+            this.playerSprite.y,
+            this.currentMonster.x,
+            this.currentMonster.y,
+        );
+        if (distanceToTarget > COMBAT_ENGAGE_DISTANCE) {
+            return;
+        }
+
         const attackInterval = 1000 / Math.max(0.1, stats.attackSpeed);
         if (time - this.lastAttackTime < attackInterval) return;
         this.lastAttackTime = time;
@@ -687,23 +713,101 @@ export class Game extends Scene {
     private movePlayerTowardMonster(dt: number) {
         const stats = this.getCurrentStats();
         const speed = stats.moveSpeed * dt;
-
-        // 尝试走向最近的怪物
         const nearest = this.findNearestMonster();
-        let angle: number;
 
         if (nearest) {
-            angle = PhaserMath.Angle.Between(this.playerSprite.x, this.playerSprite.y, nearest.x, nearest.y);
-        } else {
-            angle = this.playerSprite.getData('moveAngle') ?? Math.random() * Math.PI * 2;
-            if (Math.random() < 0.02) {
-                this.playerSprite.setData('moveAngle', Math.random() * Math.PI * 2);
-            }
+            const next = this.computeStrategyPosition(
+                this.playerSprite.x,
+                this.playerSprite.y,
+                nearest.x,
+                nearest.y,
+                speed,
+                this.playerMovementStrategy,
+                PLAYER_AI_APPROACH_DISTANCE,
+                PLAYER_AI_RETREAT_DISTANCE,
+            );
+            this.playerSprite.setPosition(next.x, next.y);
+            return;
+        }
+
+        let angle = this.playerSprite.getData('moveAngle') ?? Math.random() * Math.PI * 2;
+        if (Math.random() < 0.02) {
+            angle = Math.random() * Math.PI * 2;
+            this.playerSprite.setData('moveAngle', angle);
         }
 
         const nx = PhaserMath.Clamp(this.playerSprite.x + Math.cos(angle) * speed, 30, DUNGEON_WIDTH - 30);
         const ny = PhaserMath.Clamp(this.playerSprite.y + Math.sin(angle) * speed, 30, DUNGEON_HEIGHT - 30);
         this.playerSprite.setPosition(nx, ny);
+    }
+
+    private updateCombatMovement(monster: Monster, dt: number, playerMoveSpeed: number) {
+        const playerStep = playerMoveSpeed * dt;
+        const playerNext = this.computeStrategyPosition(
+            this.playerSprite.x,
+            this.playerSprite.y,
+            monster.x,
+            monster.y,
+            playerStep,
+            this.playerMovementStrategy,
+            PLAYER_AI_APPROACH_DISTANCE,
+            PLAYER_AI_RETREAT_DISTANCE,
+        );
+        this.playerSprite.setPosition(playerNext.x, playerNext.y);
+
+        const monsterStep = monster.stats.moveSpeed * dt;
+        const monsterNext = this.computeStrategyPosition(
+            monster.x,
+            monster.y,
+            this.playerSprite.x,
+            this.playerSprite.y,
+            monsterStep,
+            monster.movementStrategy,
+            MONSTER_AI_APPROACH_DISTANCE,
+            MONSTER_AI_RETREAT_DISTANCE,
+        );
+        monster.x = monsterNext.x;
+        monster.y = monsterNext.y;
+
+        const sprite = this.monsterSprites.get(monster.id);
+        if (sprite) {
+            sprite.setPosition(monsterNext.x, monsterNext.y);
+        }
+    }
+
+    private computeStrategyPosition(
+        sourceX: number,
+        sourceY: number,
+        targetX: number,
+        targetY: number,
+        step: number,
+        strategy: MovementStrategy,
+        approachDistance: number,
+        retreatDistance: number,
+    ): { x: number; y: number } {
+        const distance = PhaserMath.Distance.Between(sourceX, sourceY, targetX, targetY);
+        if (distance <= 0.001 || step <= 0) {
+            return { x: sourceX, y: sourceY };
+        }
+
+        const angleToTarget = PhaserMath.Angle.Between(sourceX, sourceY, targetX, targetY);
+        let moveAngle: number | null = null;
+
+        if (strategy === 'approach') {
+            if (distance > approachDistance) {
+                moveAngle = angleToTarget;
+            }
+        } else if (distance < retreatDistance) {
+            moveAngle = angleToTarget + Math.PI;
+        }
+
+        if (moveAngle === null) {
+            return { x: sourceX, y: sourceY };
+        }
+
+        const nextX = PhaserMath.Clamp(sourceX + Math.cos(moveAngle) * step, 30, DUNGEON_WIDTH - 30);
+        const nextY = PhaserMath.Clamp(sourceY + Math.sin(moveAngle) * step, 30, DUNGEON_HEIGHT - 30);
+        return { x: nextX, y: nextY };
     }
 
     private showDamageNumber(x: number, y: number, damage: number, isCrit: boolean, suffix = '') {
