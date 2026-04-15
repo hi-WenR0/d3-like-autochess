@@ -1,6 +1,6 @@
 # 暗黑 Like 自动挂机刷宝游戏 — 开发计划
 
-基于 `design.md` 设计文档，结合 Phaser 4 + TypeScript 项目模板，按三阶段递进式开发。
+基于 `../01-gameplay-loop/2026-04-15-design-overview-legacy.md` 设计文档，结合 Phaser 4 + TypeScript 项目模板，按三阶段递进式开发。
 
 ---
 

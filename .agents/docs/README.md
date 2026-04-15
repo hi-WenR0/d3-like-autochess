@@ -26,3 +26,11 @@
 ## 模板
 
 请从 `00-templates/feature-dev-doc-template.md` 复制后填写。
+
+## 历史文档迁移
+
+原 `docs/` 下的历史文档已迁移并按分类整理到 `.agents/docs`：
+
+- 玩法设计：`01-gameplay-loop/`
+- 开发计划：`07-engine-tech/`
+- Bug 与需求记录：`08-bugfix/`
