@@ -1,7 +1,7 @@
 # bug
 
-- 进入第二关以后，玩家显示异常
-- 部分装备显示 undefinded
+- 进入第二关以后，玩家显示异常[done]
+- 部分装备显示 undefinded[done]
 -
 
 # feature

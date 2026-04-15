@@ -290,7 +290,7 @@ export class Game extends Scene {
     private renderPlayer() {
         const body = this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, 0x4fc3f7);
         const label = this.add.text(0, -PLAYER_SIZE, '你', { fontSize: '10px', color: '#ffffff' }).setOrigin(0.5);
-        this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]);
+        this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(5);
     }
 
     // ─── 怪物 ───
@@ -332,7 +332,7 @@ export class Game extends Scene {
         const hpBar = this.add.rectangle(-size / 2 - 2, -size / 2 - 6, size, 2, 0x00ff00).setOrigin(0, 0.5);
         const label = this.add.text(0, -size / 2 - 14, monster.name, { fontSize: '9px', color: '#ffffff' }).setOrigin(0.5);
 
-        const container = this.add.container(monster.x, monster.y, [body, hpBg, hpBar, label]);
+        const container = this.add.container(monster.x, monster.y, [body, hpBg, hpBar, label]).setDepth(5);
         this.monsterSprites.set(monster.id, container);
 
         container.setData('monster', monster);

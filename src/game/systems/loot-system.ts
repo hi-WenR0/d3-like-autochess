@@ -86,16 +86,17 @@ export function rollRarity(minRarity?: Rarity): Rarity {
 
 /** 生成一件装备 */
 export function generateEquipment(slot: WearableSlot, level: number, rarity: Rarity, weaponType?: WeaponType): Equipment {
+    const resolvedWeaponType = slot === 'weapon' ? (weaponType ?? randomWeaponType()) : undefined;
     const baseStats = rollBaseStats(slot, level);
     const affixes = rollAffixes(rarity);
-    const name = generateName(slot, rarity, weaponType);
+    const name = generateName(slot, rarity, resolvedWeaponType);
 
     return {
         id: generateItemId(),
         name,
         slot,
         rarity,
-        weaponType: slot === 'weapon' ? (weaponType ?? randomWeaponType()) : undefined,
+        weaponType: resolvedWeaponType,
         baseStats,
         affixes,
         level,
