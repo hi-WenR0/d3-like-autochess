@@ -497,7 +497,7 @@ export class Game extends Scene {
             return;
         }
 
-        if (canProceedToNextFloor(this.dungeon)) {
+        if (this.isCurrentFloorCleared()) {
             this.autoSaveCompletedFloor();
             this.enterTown();
             this.showFloorClearPanel();
@@ -2543,6 +2543,10 @@ export class Game extends Scene {
         return map[slot] ?? slot;
     }
 
+    private isCurrentFloorCleared(): boolean {
+        return canProceedToNextFloor(this.dungeon) && this.monsterSprites.size === 0;
+    }
+
     // ─── 存档系统 ───
 
     private manualSave() {
@@ -2555,7 +2559,7 @@ export class Game extends Scene {
     }
 
     private autoSaveCompletedFloor() {
-        if (!canProceedToNextFloor(this.dungeon)) {
+        if (!this.isCurrentFloorCleared()) {
             return;
         }
 
