@@ -29,6 +29,10 @@ export function spawnMonster(floor: number, x: number, y: number): Monster {
         stats,
         combatStyle: monsterTypeConfig.combatStyle,
         movementStrategy: monsterTypeConfig.movementStrategy,
+        aggroRadius: monsterTypeConfig.aggroRadius,
+        groupAssistRadius: monsterTypeConfig.groupAssistRadius,
+        groupBehaviorEnabled: monsterTypeConfig.groupBehaviorEnabled,
+        alertState: 'idle',
         x,
         y,
     };

@@ -424,6 +424,7 @@ export class Game extends Scene {
         container.setData('hpBar', hpBar);
         container.setData('maxHp', monster.stats.maxHp);
         container.setData('hpBarWidth', barWidth);
+        this.syncMonsterVisualState(monster);
     }
 
     private updateMonsterHpBar(monster: Monster) {
@@ -444,13 +445,14 @@ export class Game extends Scene {
 
     private updateExploring(dt: number) {
         const stats = this.getCurrentStats();
+        this.updateMonsterAwareness();
 
         if (this.character.baseStats.hp / stats.maxHp < REST_THRESHOLD) {
             setExploreState(this.dungeon, 'resting');
             return;
         }
 
-        const nearest = this.findNearestMonster();
+        const nearest = this.findNearestMonster(true);
         if (nearest) {
             if (this.lootItems.length > 0) {
                 setExploreState(this.dungeon, 'looting');
@@ -473,20 +475,15 @@ export class Game extends Scene {
     }
 
     private updateFighting(time: number, dt: number) {
+        this.updateMonsterAwareness();
+        this.currentMonster = this.pickCombatTarget();
         if (!this.currentMonster) {
             setExploreState(this.dungeon, 'exploring');
             return;
         }
 
-        const monsterSprite = this.monsterSprites.get(this.currentMonster.id);
-        if (!monsterSprite) {
-            this.currentMonster = null;
-            setExploreState(this.dungeon, 'exploring');
-            return;
-        }
-
         const stats = this.getCurrentStats();
-        this.updateCombatMovement(this.currentMonster, dt, stats.moveSpeed);
+        this.updateAlertedCombatMovement(dt, stats.moveSpeed);
         const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
         const monsterCombatProfile = getCombatStyleProfile(this.currentMonster.combatStyle);
 
@@ -715,7 +712,7 @@ export class Game extends Scene {
 
     // ─── 辅助方法 ───
 
-    private findNearestMonster(): Phaser.GameObjects.Container | null {
+    private findNearestMonster(alertedOnly = false): Phaser.GameObjects.Container | null {
         let nearest: Phaser.GameObjects.Container | null = null;
         let minDist = Infinity;
 
@@ -723,6 +720,10 @@ export class Game extends Scene {
         const py = this.playerSprite.y;
 
         this.monsterSprites.forEach((container) => {
+            const monster = container.getData('monster') as Monster;
+            if (alertedOnly && monster.alertState !== 'alerted') {
+                return;
+            }
             const dist = PhaserMath.Distance.Between(px, py, container.x, container.y);
             if (dist < minDist) {
                 minDist = dist;
@@ -765,15 +766,19 @@ export class Game extends Scene {
         this.playerSprite.setPosition(nx, ny);
     }
 
-    private updateCombatMovement(monster: Monster, dt: number, playerMoveSpeed: number) {
+    private updateAlertedCombatMovement(dt: number, playerMoveSpeed: number) {
+        const targetMonster = this.currentMonster;
+        if (!targetMonster) {
+            return;
+        }
+
         const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
-        const monsterCombatProfile = getCombatStyleProfile(monster.combatStyle);
         const playerStep = playerMoveSpeed * dt;
         const playerNext = this.computeStrategyPosition(
             this.playerSprite.x,
             this.playerSprite.y,
-            monster.x,
-            monster.y,
+            targetMonster.x,
+            targetMonster.y,
             playerStep,
             this.playerMovementStrategy,
             playerCombatProfile.approachDistance,
@@ -781,28 +786,99 @@ export class Game extends Scene {
         );
         this.playerSprite.setPosition(playerNext.x, playerNext.y);
 
-        const monsterStep = monster.stats.moveSpeed * dt;
-        const monsterNext = this.computeStrategyPosition(
-            monster.x,
-            monster.y,
-            this.playerSprite.x,
-            this.playerSprite.y,
-            monsterStep,
-            monster.movementStrategy,
-            monsterCombatProfile.approachDistance,
-            monsterCombatProfile.retreatDistance,
-        );
-        monster.x = monsterNext.x;
-        monster.y = monsterNext.y;
+        this.getAlertedMonsters().forEach((monster) => {
+            const monsterCombatProfile = getCombatStyleProfile(monster.combatStyle);
+            const monsterStep = monster.stats.moveSpeed * dt;
+            const monsterNext = this.computeStrategyPosition(
+                monster.x,
+                monster.y,
+                this.playerSprite.x,
+                this.playerSprite.y,
+                monsterStep,
+                monster.movementStrategy,
+                monsterCombatProfile.approachDistance,
+                monsterCombatProfile.retreatDistance,
+            );
+            monster.x = monsterNext.x;
+            monster.y = monsterNext.y;
 
-        const sprite = this.monsterSprites.get(monster.id);
-        if (sprite) {
-            sprite.setPosition(monsterNext.x, monsterNext.y);
-        }
+            const sprite = this.monsterSprites.get(monster.id);
+            if (sprite) {
+                sprite.setPosition(monsterNext.x, monsterNext.y);
+            }
+        });
     }
 
     private getCombatStyleLabel(style: CombatStyle): string {
         return getCombatStyleProfile(style).label;
+    }
+
+    private getAlertedMonsters(): Monster[] {
+        const monsters: Monster[] = [];
+        this.monsterSprites.forEach((container) => {
+            const monster = container.getData('monster') as Monster;
+            if (monster.alertState === 'alerted') {
+                monsters.push(monster);
+            }
+        });
+        return monsters;
+    }
+
+    private updateMonsterAwareness() {
+        const monsters: Monster[] = [];
+        this.monsterSprites.forEach((container) => {
+            monsters.push(container.getData('monster') as Monster);
+        });
+
+        const directlyAlerted = new Set<string>();
+        monsters.forEach((monster) => {
+            const distanceToPlayer = PhaserMath.Distance.Between(
+                this.playerSprite.x,
+                this.playerSprite.y,
+                monster.x,
+                monster.y,
+            );
+            if (distanceToPlayer <= monster.aggroRadius) {
+                directlyAlerted.add(monster.id);
+            }
+        });
+
+        const groupAlerted = new Set<string>(directlyAlerted);
+        monsters.forEach((monster) => {
+            if (!monster.groupBehaviorEnabled || !directlyAlerted.has(monster.id)) {
+                return;
+            }
+
+            monsters.forEach((ally) => {
+                if (!ally.groupBehaviorEnabled) {
+                    return;
+                }
+
+                const allyDistance = PhaserMath.Distance.Between(monster.x, monster.y, ally.x, ally.y);
+                if (allyDistance <= monster.groupAssistRadius) {
+                    groupAlerted.add(ally.id);
+                }
+            });
+        });
+
+        monsters.forEach((monster) => {
+            monster.alertState = groupAlerted.has(monster.id) ? 'alerted' : 'idle';
+            this.syncMonsterVisualState(monster);
+        });
+    }
+
+    private pickCombatTarget(): Monster | null {
+        const nearest = this.findNearestMonster(true);
+        return nearest ? (nearest.getData('monster') as Monster) : null;
+    }
+
+    private syncMonsterVisualState(monster: Monster) {
+        const sprite = this.monsterSprites.get(monster.id);
+        if (!sprite) {
+            return;
+        }
+
+        sprite.setAlpha(monster.alertState === 'alerted' ? 1 : 0.82);
     }
 
     private computeStrategyPosition(
