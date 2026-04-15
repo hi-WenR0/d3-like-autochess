@@ -1,16 +1,17 @@
 import type { Equipment } from './equipment';
+import type { Rarity } from './equipment';
 
 /** 背包配置 */
 export const INVENTORY_ROWS = 5;
 export const INVENTORY_COLS = 8;
-export const INVENTORY_CAPACITY = INVENTORY_ROWS * INVENTORY_COLS; // 40
+export const INVENTORY_CAPACITY = 200;
 
 /** 物品类型 */
 export type ItemType = 'equipment' | 'consumable' | 'material';
 
 /** 背包物品 */
 export interface InventoryItem {
-    slotIndex: number;  // 格子索引 (0-39)
+    slotIndex: number;  // 格子索引 (0-(INVENTORY_CAPACITY-1))
     item: Equipment;    // 目前只有装备，后续扩展 consumable/material
 }
 
@@ -18,6 +19,9 @@ export interface InventoryItem {
 export interface InventoryData {
     items: InventoryItem[];
     gold: number;
+    dismantleEssence: number;
+    autoDismantleEnabled: boolean;
+    autoDismantleMaxRarity: Rarity;
 }
 
 /** 消耗品类型 */
