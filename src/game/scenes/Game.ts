@@ -19,6 +19,7 @@ import {
     getSpecializationDef,
     getCombatStyleProfile,
     getAllowedClassesForEquipment,
+    getActiveSkillForCharacter,
     EQUIP_SLOTS,
     INVENTORY_CAPACITY,
     sellPrice,
@@ -49,6 +50,7 @@ import {
 } from '../systems/monster-system';
 import {
     playerAttackMonster,
+    playerUseSkillOnMonster,
     collectAffixEffects,
     type CombatResult,
 } from '../systems/combat-system';
@@ -175,6 +177,7 @@ export class Game extends Scene {
     affixEffects!: AffixEffects;
     consumables: Consumable[] = [];
     activeBuffs: ActiveBuff[] = [];
+    skillCooldowns: Record<string, number> = {};
 
     // 游戏对象
     playerSprite!: Phaser.GameObjects.Container;
@@ -244,6 +247,7 @@ export class Game extends Scene {
             this.monsterCodex = saved.monsterCodex ?? {};
             this.consumables = saved.consumables ?? [];
             this.activeBuffs = [];
+            this.skillCooldowns = {};
             this.affixEffects = collectAffixEffects(this.equipped);
 
             // 离线收益
@@ -259,6 +263,7 @@ export class Game extends Scene {
             this.equipped = createEquippedItems();
             this.dungeon = createDungeonState();
             this.monsterCodex = {};
+            this.skillCooldowns = {};
             this.affixEffects = collectAffixEffects(this.equipped);
         }
 
@@ -522,6 +527,10 @@ export class Game extends Scene {
             this.currentMonster.y,
         );
         if (distanceToTarget > playerCombatProfile.attackRange) {
+            return;
+        }
+
+        if (this.tryUseClassSkill(time, this.currentMonster, stats)) {
             return;
         }
 
@@ -1038,6 +1047,35 @@ export class Game extends Scene {
 
     private log(msg: string) {
         this.combatLog.setText(msg);
+    }
+
+    private tryUseClassSkill(time: number, monster: Monster, stats: ReturnType<Game['getCurrentStats']>): boolean {
+        const skill = getActiveSkillForCharacter(this.character);
+        if (!skill) {
+            return false;
+        }
+
+        const nextReadyAt = this.skillCooldowns[skill.id] ?? 0;
+        if (time < nextReadyAt) {
+            return false;
+        }
+
+        this.skillCooldowns[skill.id] = time + skill.cooldownMs;
+        const result = playerUseSkillOnMonster(this.character, monster, this.affixEffects, skill, stats);
+        this.showDamageNumber(monster.x, monster.y - 44, result.damageDealt, result.isCrit, ` ${result.skillName}`);
+
+        if (result.specializationHeal > 0) {
+            this.showHealNumber(this.playerSprite.x + 18, this.playerSprite.y - 58, result.specializationHeal);
+        }
+
+        if (result.monsterKilled) {
+            this.onMonsterKilled(monster, result);
+        } else {
+            this.updateMonsterHpBar(monster);
+            this.log(`释放技能：${result.skillName}`);
+        }
+
+        return true;
     }
 
     private createDungeonRunSummary(): DungeonRunSummary {
@@ -2180,6 +2218,7 @@ export class Game extends Scene {
         const stats = this.getCurrentStats();
         const bonuses = calculateEquipBonuses(this.equipped);
         const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
+        const activeSkill = getActiveSkillForCharacter(this.character);
 
         const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
         const classLine = addBoundedText(this, {
@@ -2227,6 +2266,20 @@ export class Game extends Scene {
                 style: { fontSize: '11px', color: '#e6cc80', align: 'center' },
             }).setDepth(202);
             elements.push(passiveLine);
+        }
+        if (activeSkill) {
+            const skillLine = addBoundedText(this, {
+                x: 512,
+                y: 162,
+                content: `职业技能: ${activeSkill.label} · CD ${(activeSkill.cooldownMs / 1000).toFixed(1)}s`,
+                width: 360,
+                height: 20,
+                minFontSize: 10,
+                maxLines: 1,
+                originX: 0.5,
+                style: { fontSize: '11px', color: '#5dade2', align: 'center' },
+            }).setDepth(202);
+            elements.push(skillLine);
         }
 
         const statLines = [
@@ -2961,6 +3014,8 @@ export class Game extends Scene {
         this.inventory = createInventory();
         this.equipped = createEquippedItems();
         this.dungeon = createDungeonState();
+        this.monsterCodex = {};
+        this.skillCooldowns = {};
         this.affixEffects = collectAffixEffects(this.equipped);
         this.consumables = [];
         this.activeBuffs = [];

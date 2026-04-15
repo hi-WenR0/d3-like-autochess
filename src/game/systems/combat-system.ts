@@ -4,6 +4,7 @@ import {
     type Monster,
     type AffixId,
     type Equipment,
+    type SkillDefinition,
 } from '../models';
 import { getEffectiveStats } from './character-system';
 import { monsterTakeDamage, getMonsterAttack } from './monster-system';
@@ -24,6 +25,10 @@ export interface CombatResult {
     isCombo: boolean;
     specializationProc: string | null;
     specializationHeal: number;
+}
+
+export interface SkillCombatResult extends CombatResult {
+    skillName: string;
 }
 
 /** 收集所有装备上的词条效果 */
@@ -284,6 +289,46 @@ export function playerAttackMonster(
         isEvaded,
         isCombo: extraAttacks > 0,
         specializationProc,
+        specializationHeal,
+    };
+}
+
+export function playerUseSkillOnMonster(
+    char: CharacterData,
+    monster: Monster,
+    effects: AffixEffects,
+    skill: SkillDefinition,
+    stats?: CharacterStats,
+): SkillCombatResult {
+    const effectiveStats = stats ?? getEffectiveStats(char);
+    const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats, {
+        damageMultiplier: skill.damageMultiplier,
+        critRateBonus: skill.critRateBonus,
+        critDamageBonus: skill.critDamageBonus,
+    });
+    const damageDealt = applyDamageToMonster(rawDamage, Math.floor(monster.stats.atk * 0.25), effects);
+    const monsterKilled = monsterTakeDamage(monster, damageDealt);
+
+    let specializationHeal = 0;
+    if (skill.healRatio && skill.healRatio > 0) {
+        specializationHeal = Math.max(1, Math.floor(effectiveStats.maxHp * skill.healRatio));
+        char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + specializationHeal);
+    }
+
+    return {
+        skillName: skill.label,
+        damageDealt,
+        isCrit,
+        monsterKilled,
+        expGained: monsterKilled ? monster.stats.exp : 0,
+        goldGained: monsterKilled ? monster.stats.gold : 0,
+        damageReceived: 0,
+        playerDied: false,
+        lifeStealHeal: 0,
+        extraAttacks: 0,
+        isEvaded: false,
+        isCombo: false,
+        specializationProc: skill.label,
         specializationHeal,
     };
 }

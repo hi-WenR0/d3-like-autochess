@@ -40,3 +40,6 @@ export { DUNGEON_ZONES, getZoneForFloor } from './dungeon';
 
 export type { ConsumableType, ConsumableCategory, ConsumableDef, Consumable, ActiveBuff } from './consumable';
 export { CONSUMABLE_DEFS, POTION_HEAL_RATIO } from './consumable';
+
+export type { SkillDefinition } from './skill';
+export { CLASS_SKILLS, getActiveSkillForCharacter } from './skill';
