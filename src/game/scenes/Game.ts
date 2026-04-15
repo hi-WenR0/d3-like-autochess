@@ -98,6 +98,34 @@ const COMBAT_INTERVAL = 500;
 const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
+const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
+
+const DEPTH = {
+    WORLD_TILE: 0,
+    WORLD_ENTITY: 20,
+    WORLD_LOOT: 30,
+    WORLD_HIGHLIGHT_LOOT: 35,
+    WORLD_FLOATING_TEXT: 80,
+    HUD_BG: 100,
+    HUD_INFO: 110,
+    HUD_NAV_BG: 120,
+    HUD_NAV_BTN: 130,
+    UI_MODAL: 300,
+    UI_TOOLTIP: 400,
+} as const;
+
+interface PanelRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+interface PanelDragContext {
+    panel: Phaser.GameObjects.Container;
+    handle: Phaser.GameObjects.Rectangle;
+    frame: Phaser.GameObjects.Rectangle;
+}
 
 export class Game extends Scene {
     // 游戏数据
@@ -145,8 +173,7 @@ export class Game extends Scene {
     // 自动保存
     autoSaveManager!: AutoSaveManager;
 
-    // 离线奖励定时器
-    private offlineRewardsTimer: Phaser.Time.TimerEvent | null = null;
+    private panelDragContext: PanelDragContext | null = null;
 
     constructor() {
         super('Game');
@@ -293,7 +320,7 @@ export class Game extends Scene {
     private renderPlayer() {
         const body = this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, 0x4fc3f7);
         const label = this.add.text(0, -PLAYER_SIZE, '你', { fontSize: '10px', color: '#ffffff' }).setOrigin(0.5);
-        this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(5);
+        this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(DEPTH.WORLD_ENTITY);
     }
 
     // ─── 怪物 ───
@@ -335,7 +362,7 @@ export class Game extends Scene {
         const hpBar = this.add.rectangle(-size / 2 - 2, -size / 2 - 6, size, 2, 0x00ff00).setOrigin(0, 0.5);
         const label = this.add.text(0, -size / 2 - 14, monster.name, { fontSize: '9px', color: '#ffffff' }).setOrigin(0.5);
 
-        const container = this.add.container(monster.x, monster.y, [body, hpBg, hpBar, label]).setDepth(5);
+        const container = this.add.container(monster.x, monster.y, [body, hpBg, hpBar, label]).setDepth(DEPTH.WORLD_ENTITY);
         this.monsterSprites.set(monster.id, container);
 
         container.setData('monster', monster);
@@ -538,7 +565,7 @@ export class Game extends Scene {
         elements.push(label);
 
         const container = this.add.container(x, y - 40, elements);
-        container.setDepth(isHighRarity ? 50 : 10);
+        container.setDepth(isHighRarity ? DEPTH.WORLD_HIGHLIGHT_LOOT : DEPTH.WORLD_LOOT);
 
         // 掉落动画：从上方落下
         this.tweens.add({
@@ -632,7 +659,7 @@ export class Game extends Scene {
             stroke: '#000000',
             strokeThickness: 2,
         };
-        const text = this.add.text(x, y, `-${damage}${isCrit ? '!' : ''}${suffix}`, style).setOrigin(0.5).setDepth(100);
+        const text = this.add.text(x, y, `-${damage}${isCrit ? '!' : ''}${suffix}`, style).setOrigin(0.5).setDepth(DEPTH.WORLD_FLOATING_TEXT);
 
         this.tweens.add({
             targets: text,
@@ -644,7 +671,7 @@ export class Game extends Scene {
     }
 
     private showHealNumber(x: number, y: number, amount: number) {
-        const text = this.add.text(x, y, `+${amount}`, { fontSize: '12px', color: '#2ecc71', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setDepth(100);
+        const text = this.add.text(x, y, `+${amount}`, { fontSize: '12px', color: '#2ecc71', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setDepth(DEPTH.WORLD_FLOATING_TEXT);
 
         this.tweens.add({
             targets: text,
@@ -656,7 +683,7 @@ export class Game extends Scene {
     }
 
     private showEvadeText(x: number, y: number) {
-        const text = this.add.text(x, y, '闪避!', { fontSize: '12px', color: '#3498db', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setDepth(100);
+        const text = this.add.text(x, y, '闪避!', { fontSize: '12px', color: '#3498db', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setDepth(DEPTH.WORLD_FLOATING_TEXT);
 
         this.tweens.add({
             targets: text,
@@ -670,7 +697,7 @@ export class Game extends Scene {
     private showLevelUp() {
         const text = this.add.text(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2 - 50, `LEVEL UP! Lv.${this.character.level}`, {
             fontSize: '28px', color: '#f1c40f', stroke: '#000000', strokeThickness: 4,
-        }).setOrigin(0.5).setDepth(200);
+        }).setOrigin(0.5).setDepth(DEPTH.WORLD_FLOATING_TEXT);
 
         this.tweens.add({
             targets: text,
@@ -692,7 +719,7 @@ export class Game extends Scene {
             fontStyle: isHigh ? 'bold' : 'normal',
             stroke: '#000000',
             strokeThickness: isHigh ? 3 : 1,
-        }).setOrigin(0.5).setDepth(100);
+        }).setOrigin(0.5).setDepth(DEPTH.WORLD_FLOATING_TEXT);
 
         this.tweens.add({
             targets: text,
@@ -713,37 +740,37 @@ export class Game extends Scene {
         const hudY = DUNGEON_HEIGHT;
 
         // 主 HUD 背景
-        this.add.rectangle(DUNGEON_WIDTH / 2, hudY + HUD_HEIGHT / 2, DUNGEON_WIDTH, HUD_HEIGHT, 0x0d0d1a).setDepth(10);
+        this.add.rectangle(DUNGEON_WIDTH / 2, hudY + HUD_HEIGHT / 2, DUNGEON_WIDTH, HUD_HEIGHT, 0x0d0d1a).setDepth(DEPTH.HUD_BG);
 
         // 分隔线
-        this.add.rectangle(DUNGEON_WIDTH / 2, hudY + 1, DUNGEON_WIDTH, 2, 0x4a4a6a).setDepth(11);
+        this.add.rectangle(DUNGEON_WIDTH / 2, hudY + 1, DUNGEON_WIDTH, 2, 0x4a4a6a).setDepth(DEPTH.HUD_BG + 1);
 
         // HP 条
-        this.hpBarBg = this.add.rectangle(20, hudY + 16, 220, 18, 0x1a1a2e).setOrigin(0).setDepth(11).setStrokeStyle(1, 0x333355);
-        this.hpBar = this.add.rectangle(22, hudY + 18, 216, 14, 0xc0392b).setOrigin(0).setDepth(12);
-        this.hpText = this.add.text(130, hudY + 18, '', { fontSize: '11px', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setDepth(13);
+        this.hpBarBg = this.add.rectangle(20, hudY + 16, 220, 18, 0x1a1a2e).setOrigin(0).setDepth(DEPTH.HUD_INFO).setStrokeStyle(1, 0x333355);
+        this.hpBar = this.add.rectangle(22, hudY + 18, 216, 14, 0xc0392b).setOrigin(0).setDepth(DEPTH.HUD_INFO + 1);
+        this.hpText = this.add.text(130, hudY + 18, '', { fontSize: '11px', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }).setOrigin(0.5).setDepth(DEPTH.HUD_INFO + 2);
 
         // 左侧信息
-        this.floorText = this.add.text(250, hudY + 10, '', { fontSize: '13px', color: '#f39c12', fontStyle: 'bold' }).setDepth(13);
-        this.goldText = this.add.text(250, hudY + 28, '', { fontSize: '12px', color: '#f1c40f' }).setDepth(13);
-        this.levelText = this.add.text(420, hudY + 10, '', { fontSize: '12px', color: '#2ecc71' }).setDepth(13);
-        this.stateText = this.add.text(420, hudY + 28, '', { fontSize: '11px', color: '#95a5a6' }).setDepth(13);
+        this.floorText = this.add.text(250, hudY + 10, '', { fontSize: '13px', color: '#f39c12', fontStyle: 'bold' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.goldText = this.add.text(250, hudY + 28, '', { fontSize: '12px', color: '#f1c40f' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.levelText = this.add.text(420, hudY + 10, '', { fontSize: '12px', color: '#2ecc71' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.stateText = this.add.text(420, hudY + 28, '', { fontSize: '11px', color: '#95a5a6' }).setDepth(DEPTH.HUD_INFO + 2);
 
         // 右侧信息
-        this.atkText = this.add.text(600, hudY + 10, '', { fontSize: '11px', color: '#e74c3c' }).setDepth(13);
-        this.defText = this.add.text(600, hudY + 28, '', { fontSize: '11px', color: '#3498db' }).setDepth(13);
-        this.statPointsText = this.add.text(770, hudY + 10, '', { fontSize: '11px', color: '#9b59b6', fontStyle: 'bold' }).setDepth(13);
-        this.buffText = this.add.text(770, hudY + 28, '', { fontSize: '9px', color: '#e6cc80' }).setDepth(13);
+        this.atkText = this.add.text(600, hudY + 10, '', { fontSize: '11px', color: '#e74c3c' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.defText = this.add.text(600, hudY + 28, '', { fontSize: '11px', color: '#3498db' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.statPointsText = this.add.text(770, hudY + 10, '', { fontSize: '11px', color: '#9b59b6', fontStyle: 'bold' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.buffText = this.add.text(770, hudY + 28, '', { fontSize: '9px', color: '#e6cc80' }).setDepth(DEPTH.HUD_INFO + 2);
 
         // 战斗日志
         this.combatLog = this.add.text(20, hudY + 45, '', {
             fontSize: '11px', color: '#8e8e9e', wordWrap: { width: DUNGEON_WIDTH - 40 }, lineSpacing: 2,
-        }).setDepth(13);
+        }).setDepth(DEPTH.HUD_INFO + 2);
 
         // ─── 底部导航栏 ───
         const navY = hudY + HUD_HEIGHT - 32;
-        this.add.rectangle(DUNGEON_WIDTH / 2, navY + 16, DUNGEON_WIDTH, 32, 0x0a0a18).setDepth(14);
-        this.add.rectangle(DUNGEON_WIDTH / 2, navY, DUNGEON_WIDTH, 1, 0x333355).setDepth(15);
+        this.add.rectangle(DUNGEON_WIDTH / 2, navY + 16, DUNGEON_WIDTH, 32, 0x0a0a18).setDepth(DEPTH.HUD_NAV_BG);
+        this.add.rectangle(DUNGEON_WIDTH / 2, navY, DUNGEON_WIDTH, 1, 0x333355).setDepth(DEPTH.HUD_NAV_BG + 1);
 
         // 导航按钮（均匀分布）
         const navBtns: { label: string; color: string; action: () => void }[] = [
@@ -763,7 +790,7 @@ export class Game extends Scene {
 
             const text = this.add.text(x, navY + 16, btn.label, {
                 fontSize: '12px', color: btn.color,
-            }).setOrigin(0.5).setDepth(16).setInteractive({ useHandCursor: true });
+            }).setOrigin(0.5).setDepth(DEPTH.HUD_NAV_BTN).setInteractive({ useHandCursor: true });
 
             // 悬浮效果
             text.on('pointerover', () => {
@@ -812,13 +839,97 @@ export class Game extends Scene {
 
     // ─── UI 面板系统 ───
 
+    private createDragHandle(panelRect: PanelRect): Phaser.GameObjects.Rectangle {
+        return this.add.rectangle(
+            panelRect.x + panelRect.width / 2,
+            panelRect.y + 22,
+            Math.max(120, panelRect.width - 120),
+            26,
+            0x6ea6d9,
+            0.14,
+        ).setStrokeStyle(1, 0x9ac3e8, 0.8).setInteractive({ useHandCursor: true });
+    }
+
+    private clampPanelPosition(panel: Phaser.GameObjects.Container, panelRect: PanelRect): void {
+        const minX = -panelRect.x;
+        const maxX = DUNGEON_WIDTH - (panelRect.x + panelRect.width);
+        const minY = -panelRect.y;
+        const maxY = VIEWPORT_HEIGHT - (panelRect.y + panelRect.height);
+
+        const clampedX = PhaserMath.Clamp(panel.x, Math.min(minX, maxX), Math.max(minX, maxX));
+        const clampedY = PhaserMath.Clamp(panel.y, Math.min(minY, maxY), Math.max(minY, maxY));
+        panel.setPosition(clampedX, clampedY);
+    }
+
+    private clearPanelDragContext(): void {
+        if (!this.panelDragContext) return;
+        this.panelDragContext.handle.setFillStyle(0x6ea6d9, 0.14);
+        this.panelDragContext.frame.setStrokeStyle(2, 0x4a4a6a);
+        this.panelDragContext = null;
+    }
+
+    private enablePanelDragging(
+        panel: Phaser.GameObjects.Container,
+        panelRect: PanelRect,
+        panelFrame: Phaser.GameObjects.Rectangle,
+        dragHandle: Phaser.GameObjects.Rectangle,
+    ): void {
+        this.input.setDraggable(dragHandle, true);
+
+        dragHandle.on('pointerover', () => {
+            if (this.panelDragContext?.handle !== dragHandle) {
+                dragHandle.setFillStyle(0x6ea6d9, 0.24);
+            }
+        });
+
+        dragHandle.on('pointerout', () => {
+            if (this.panelDragContext?.handle !== dragHandle) {
+                dragHandle.setFillStyle(0x6ea6d9, 0.14);
+            }
+        });
+
+        dragHandle.on('dragstart', () => {
+            this.clearPanelDragContext();
+            this.panelDragContext = { panel, handle: dragHandle, frame: panelFrame };
+            dragHandle.setFillStyle(0x6ea6d9, 0.35);
+            panelFrame.setStrokeStyle(2, 0x74b9ff);
+        });
+
+        dragHandle.on('drag', (pointer: Phaser.Input.Pointer) => {
+            if (this.panelDragContext?.panel !== panel) return;
+
+            const deltaX = pointer.worldX - pointer.prevPosition.x;
+            const deltaY = pointer.worldY - pointer.prevPosition.y;
+            panel.x += deltaX;
+            panel.y += deltaY;
+            this.clampPanelPosition(panel, panelRect);
+        });
+
+        dragHandle.on('dragend', () => {
+            this.clearPanelDragContext();
+        });
+    }
+
+    private createManagedPanel(
+        elements: Phaser.GameObjects.GameObject[],
+        panelRect: PanelRect,
+        panelFrame: Phaser.GameObjects.Rectangle,
+    ): Phaser.GameObjects.Container {
+        const dragHandle = this.createDragHandle(panelRect);
+        elements.push(dragHandle);
+
+        const panel = this.add.container(0, 0, elements).setDepth(DEPTH.UI_MODAL);
+        this.uiPanel = panel;
+
+        this.enablePanelDragging(panel, panelRect, panelFrame, dragHandle);
+        this.clampPanelPosition(panel, panelRect);
+        this.animatePanelOpen(panel);
+        return panel;
+    }
+
     private closeUI() {
-        // 清除离线奖励定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
-        
+        this.clearPanelDragContext();
+
         if (this.uiPanel) {
             const panel = this.uiPanel;
             this.uiPanel = null; // 立即清空引用，允许新面板设置
@@ -832,13 +943,11 @@ export class Game extends Scene {
                     // 如果没有新面板打开，则更新状态
                     if (this.uiPanel === null) {
                         this.isUIOpen = false;
-                        this.setDungeonVisibility(true);
                     }
                 },
             });
         } else {
             this.isUIOpen = false;
-            this.setDungeonVisibility(true);
         }
         if (this.tooltipContainer) {
             this.tooltipContainer.destroy(true);
@@ -848,7 +957,6 @@ export class Game extends Scene {
 
     /** 为面板添加打开动画 */
     private animatePanelOpen(panel: Phaser.GameObjects.Container) {
-        this.setDungeonVisibility(false);
         panel.setAlpha(0);
         this.tweens.add({
             targets: panel,
@@ -858,43 +966,11 @@ export class Game extends Scene {
         });
     }
 
-    /** 控制地牢游戏对象的可见性 */
-    private setDungeonVisibility(visible: boolean) {
-        // 玩家精灵
-        if (this.playerSprite && this.playerSprite.scene) {
-            this.playerSprite.setVisible(visible);
-        }
-        // 怪物精灵
-        this.monsterSprites.forEach(s => {
-            if (s && s.scene) {
-                s.setVisible(visible);
-            }
-        });
-        // 战利品精灵
-        this.lootItems.forEach(l => {
-            if (l.sprite && l.sprite.scene) {
-                l.sprite.setVisible(visible);
-            }
-        });
-        // 地板瓦片
-        this.floorTiles.forEach(t => {
-            if (t && t.scene) {
-                t.setVisible(visible);
-            }
-        });
-    }
-
     // ─── 背包面板 ───
 
     private openInventoryPanel() {
         this.closeUI();
         this.isUIOpen = true;
-
-        // 清除可能存在的定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -975,15 +1051,9 @@ export class Game extends Scene {
             ey += 18;
         }
 
-        this.uiPanel = this.add.container(0, 0, elements);
-        this.animatePanelOpen(this.uiPanel);
+        const panelRect: PanelRect = { x: 100, y: 40, width: 824, height: 680 };
+        this.createManagedPanel(elements, panelRect, panelBg);
 
-        // 5秒后自动关闭
-        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
-            if (this.uiPanel) {
-                this.closeUI();
-            }
-        });
     }
 
     private slotShortName(slot: string): string {
@@ -1036,12 +1106,6 @@ export class Game extends Scene {
     private openEquipPanel() {
         this.closeUI();
         this.isUIOpen = true;
-
-        // 清除可能存在的定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1098,15 +1162,9 @@ export class Game extends Scene {
         }).setDepth(202);
         elements.push(statsText);
 
-        this.uiPanel = this.add.container(0, 0, elements);
-        this.animatePanelOpen(this.uiPanel);
+        const panelRect: PanelRect = { x: 250, y: 80, width: 524, height: 580 };
+        this.createManagedPanel(elements, panelRect, panelBg);
 
-        // 5秒后自动关闭
-        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
-            if (this.uiPanel) {
-                this.closeUI();
-            }
-        });
     }
 
     // ─── 属性面板 ───
@@ -1114,12 +1172,6 @@ export class Game extends Scene {
     private openStatsPanel() {
         this.closeUI();
         this.isUIOpen = true;
-
-        // 清除可能存在的定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1211,15 +1263,9 @@ export class Game extends Scene {
             }
         }
 
-        this.uiPanel = this.add.container(0, 0, elements);
-        this.animatePanelOpen(this.uiPanel);
+        const panelRect: PanelRect = { x: 300, y: 80, width: 424, height: 580 };
+        this.createManagedPanel(elements, panelRect, panelBg);
 
-        // 5秒后自动关闭
-        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
-            if (this.uiPanel) {
-                this.closeUI();
-            }
-        });
     }
 
     // ─── Tooltip ───
@@ -1232,13 +1278,13 @@ export class Game extends Scene {
         let lineCount = 4 + equipment.affixes.length; // name + slot + rarity + baseStat lines + affixes
         const height = 40 + lineCount * 18;
 
-        const bg = this.add.rectangle(x, y, width, height, 0x111122, 0.95).setOrigin(0).setDepth(300).setStrokeStyle(1, parseInt(RARITY_CONFIG[equipment.rarity].color.replace('#', ''), 16));
+        const bg = this.add.rectangle(x, y, width, height, 0x111122, 0.95).setOrigin(0).setDepth(DEPTH.UI_TOOLTIP).setStrokeStyle(1, parseInt(RARITY_CONFIG[equipment.rarity].color.replace('#', ''), 16));
         elements.push(bg);
 
-        const nameText = this.add.text(x + 10, y + 8, equipment.name, { fontSize: '14px', color: RARITY_CONFIG[equipment.rarity].color, fontStyle: 'bold' }).setDepth(301);
+        const nameText = this.add.text(x + 10, y + 8, equipment.name, { fontSize: '14px', color: RARITY_CONFIG[equipment.rarity].color, fontStyle: 'bold' }).setDepth(DEPTH.UI_TOOLTIP + 1);
         elements.push(nameText);
 
-        const slotText = this.add.text(x + 10, y + 28, `${this.slotLabel(equipment.slot)} Lv.${equipment.level}`, { fontSize: '11px', color: '#95a5a6' }).setDepth(301);
+        const slotText = this.add.text(x + 10, y + 28, `${this.slotLabel(equipment.slot)} Lv.${equipment.level}`, { fontSize: '11px', color: '#95a5a6' }).setDepth(DEPTH.UI_TOOLTIP + 1);
         elements.push(slotText);
 
         let ty = y + 48;
@@ -1256,7 +1302,7 @@ export class Game extends Scene {
 
         for (const [label, val] of statEntries) {
             if (val !== undefined && val > 0) {
-                const text = this.add.text(x + 10, ty, `${label}: +${val}`, { fontSize: '11px', color: '#ffffff' }).setDepth(301);
+                const text = this.add.text(x + 10, ty, `${label}: +${val}`, { fontSize: '11px', color: '#ffffff' }).setDepth(DEPTH.UI_TOOLTIP + 1);
                 elements.push(text);
                 ty += 16;
             }
@@ -1265,19 +1311,19 @@ export class Game extends Scene {
         // 词条
         if (equipment.affixes.length > 0) {
             ty += 4;
-            const sep = this.add.text(x + 10, ty, '───────', { fontSize: '10px', color: '#555555' }).setDepth(301);
+            const sep = this.add.text(x + 10, ty, '───────', { fontSize: '10px', color: '#555555' }).setDepth(DEPTH.UI_TOOLTIP + 1);
             elements.push(sep);
             ty += 14;
 
             for (const affix of equipment.affixes) {
                 const color = affix.category === 'special' ? '#e6cc80' : affix.category === 'offensive' ? '#ff7777' : '#77ff77';
-                const text = this.add.text(x + 10, ty, `• ${affix.name}: +${affix.value}`, { fontSize: '11px', color }).setDepth(301);
+                const text = this.add.text(x + 10, ty, `• ${affix.name}: +${affix.value}`, { fontSize: '11px', color }).setDepth(DEPTH.UI_TOOLTIP + 1);
                 elements.push(text);
                 ty += 16;
             }
         }
 
-        this.tooltipContainer = this.add.container(0, 0, elements);
+        this.tooltipContainer = this.add.container(0, 0, elements).setDepth(DEPTH.UI_TOOLTIP);
     }
 
     private hideTooltip() {
@@ -1307,12 +1353,6 @@ export class Game extends Scene {
         this.closeUI();
         this.isUIOpen = true;
 
-        // 清除可能存在的定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
-
         const elements: Phaser.GameObjects.GameObject[] = [];
 
         const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.8).setOrigin(0).setDepth(200).setInteractive();
@@ -1338,15 +1378,9 @@ export class Game extends Scene {
         cancelBtn.on('pointerdown', () => this.closeUI());
         elements.push(cancelBtn);
 
-        this.uiPanel = this.add.container(0, 0, elements);
-        this.animatePanelOpen(this.uiPanel);
+        const panelRect: PanelRect = { x: 350, y: 250, width: 324, height: 200 };
+        this.createManagedPanel(elements, panelRect, panelBg);
 
-        // 5秒后自动关闭
-        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
-            if (this.uiPanel) {
-                this.closeUI();
-            }
-        });
     }
 
     private resetGame() {
@@ -1379,12 +1413,6 @@ export class Game extends Scene {
         this.closeUI();
         this.isUIOpen = true;
 
-        // 清除可能存在的定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
-
         const elements: Phaser.GameObjects.GameObject[] = [];
 
         const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.8).setOrigin(0).setDepth(200).setInteractive();
@@ -1409,15 +1437,9 @@ export class Game extends Scene {
         closeBtn.on('pointerdown', () => this.closeUI());
         elements.push(closeBtn);
 
-        this.uiPanel = this.add.container(0, 0, elements);
-        this.animatePanelOpen(this.uiPanel);
+        const panelRect: PanelRect = { x: 300, y: 150, width: 424, height: 300 };
+        this.createManagedPanel(elements, panelRect, panelBg);
 
-        // 5秒后自动关闭
-        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
-            if (this.uiPanel) {
-                this.closeUI();
-            }
-        });
     }
 
     // ─── 消耗品系统 ───
@@ -1476,12 +1498,6 @@ export class Game extends Scene {
     private openConsumablePanel() {
         this.closeUI();
         this.isUIOpen = true;
-
-        // 清除可能存在的定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1553,15 +1569,9 @@ export class Game extends Scene {
             }
         }
 
-        this.uiPanel = this.add.container(0, 0, elements);
-        this.animatePanelOpen(this.uiPanel);
+        const panelRect: PanelRect = { x: 250, y: 80, width: 524, height: 580 };
+        this.createManagedPanel(elements, panelRect, panelBg);
 
-        // 5秒后自动关闭
-        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
-            if (this.uiPanel) {
-                this.closeUI();
-            }
-        });
     }
 
     // ─── 商店面板 ───
@@ -1569,12 +1579,6 @@ export class Game extends Scene {
     private openShopPanel() {
         this.closeUI();
         this.isUIOpen = true;
-
-        // 清除可能存在的定时器
-        if (this.offlineRewardsTimer) {
-            this.time.removeEvent(this.offlineRewardsTimer);
-            this.offlineRewardsTimer = null;
-        }
 
         const elements: Phaser.GameObjects.GameObject[] = [];
 
@@ -1667,14 +1671,8 @@ export class Game extends Scene {
             cy += 28;
         }
 
-        this.uiPanel = this.add.container(0, 0, elements);
-        this.animatePanelOpen(this.uiPanel);
+        const panelRect: PanelRect = { x: 200, y: 40, width: 624, height: 680 };
+        this.createManagedPanel(elements, panelRect, panelBg);
 
-        // 5秒后自动关闭
-        this.offlineRewardsTimer = this.time.delayedCall(5000, () => {
-            if (this.uiPanel) {
-                this.closeUI();
-            }
-        });
     }
 }
