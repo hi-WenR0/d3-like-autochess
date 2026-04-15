@@ -1,5 +1,6 @@
 import {
     type CharacterData,
+    type CharacterStats,
     type Monster,
     type AffixId,
     type Equipment,
@@ -81,21 +82,21 @@ export interface AffixEffects {
 }
 
 /** 计算单次攻击伤害（含穿透、狂战士） */
-export function calculateDamage(char: CharacterData, effects: AffixEffects): { damage: number; isCrit: boolean } {
-    const stats = getEffectiveStats(char);
-    const isCrit = Math.random() * 100 < stats.critRate;
+export function calculateDamage(char: CharacterData, effects: AffixEffects, stats?: CharacterStats): { damage: number; isCrit: boolean } {
+    const effectiveStats = stats ?? getEffectiveStats(char);
+    const isCrit = Math.random() * 100 < effectiveStats.critRate;
 
-    let atk = stats.atk;
+    let atk = effectiveStats.atk;
 
     // 狂战士：血量低于 30% 时 ATK 翻倍
-    if (effects.berserkerAtkBonus > 0 && char.baseStats.hp / stats.maxHp < 0.3) {
+    if (effects.berserkerAtkBonus > 0 && char.baseStats.hp / effectiveStats.maxHp < 0.3) {
         atk = Math.floor(atk * (1 + effects.berserkerAtkBonus / 100));
     }
 
     let damage = atk;
 
     if (isCrit) {
-        damage = Math.floor(damage * (stats.critDamage / 100));
+        damage = Math.floor(damage * (effectiveStats.critDamage / 100));
     }
 
     // 随机浮动 ±10%
@@ -127,11 +128,11 @@ export function calculateIncomingDamage(rawDamage: number, charDef: number, effe
 }
 
 /** 执行一次角色攻击怪物（含全部词条效果） */
-export function playerAttackMonster(char: CharacterData, monster: Monster, effects: AffixEffects): CombatResult {
-    const stats = getEffectiveStats(char);
+export function playerAttackMonster(char: CharacterData, monster: Monster, effects: AffixEffects, stats?: CharacterStats): CombatResult {
+    const effectiveStats = stats ?? getEffectiveStats(char);
 
     // 主攻击
-    const { damage: rawDamage, isCrit } = calculateDamage(char, effects);
+    const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats);
     const damageDealt = applyDamageToMonster(rawDamage, Math.floor(monster.stats.atk * 0.3), effects);
     const monsterKilled = monsterTakeDamage(monster, damageDealt);
 
@@ -147,7 +148,7 @@ export function playerAttackMonster(char: CharacterData, monster: Monster, effec
     let lifeStealHeal = 0;
     if (effects.lifeSteal > 0) {
         lifeStealHeal = Math.floor(damageDealt * effects.lifeSteal / 100);
-        char.baseStats.hp = Math.min(stats.maxHp, char.baseStats.hp + lifeStealHeal);
+        char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + lifeStealHeal);
     }
 
     let expGained = 0;
@@ -167,7 +168,7 @@ export function playerAttackMonster(char: CharacterData, monster: Monster, effec
 
     if (!monsterKilled) {
         const rawMonsterDmg = getMonsterAttack(monster);
-        const { damage: incomingDmg, evaded } = calculateIncomingDamage(rawMonsterDmg, stats.def, effects);
+        const { damage: incomingDmg, evaded } = calculateIncomingDamage(rawMonsterDmg, effectiveStats.def, effects);
         damageReceived = incomingDmg;
         isEvaded = evaded;
 

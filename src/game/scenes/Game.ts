@@ -27,6 +27,7 @@ import {
     heal,
     isAlive,
     allocateStatPoint,
+    type ExternalStatBonuses,
 } from '../systems/character-system';
 import {
     spawnMonster,
@@ -87,6 +88,7 @@ import {
     useConsumable,
     updateBuffs,
     autoUsePotion,
+    getBuffBonuses,
 } from '../systems/consumable-system';
 import {
     buyConsumable,
@@ -103,7 +105,6 @@ const DUNGEON_WIDTH = 1024;
 const DUNGEON_HEIGHT = 600;
 const HUD_HEIGHT = 168;
 const PLAYER_SIZE = 24;
-const COMBAT_INTERVAL = 500;
 const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
@@ -308,13 +309,13 @@ export class Game extends Scene {
 
     private updateHpRegen(dt: number) {
         if (this.affixEffects.hpRegen > 0) {
-            this.hpRegenTimer += dt;
-            if (this.hpRegenTimer >= 1) {
-                this.hpRegenTimer = 0;
-                heal(this.character, this.affixEffects.hpRegen);
+                this.hpRegenTimer += dt;
+                if (this.hpRegenTimer >= 1) {
+                    this.hpRegenTimer = 0;
+                    heal(this.character, this.affixEffects.hpRegen, this.getCurrentStatBonuses());
+                }
             }
         }
-    }
 
     // ─── 增益与自动药水 ───
 
@@ -326,7 +327,7 @@ export class Game extends Scene {
         }
 
         // 自动使用药水（HP < 30% 时触发）
-        const result = autoUsePotion(this.consumables, this.character);
+        const result = autoUsePotion(this.consumables, this.character, 0.3, this.getCurrentStatBonuses());
         if (result.used) {
             this.log(result.message);
             // 清理空消耗品
@@ -427,7 +428,7 @@ export class Game extends Scene {
     // ─── 状态更新 ───
 
     private updateExploring(dt: number) {
-        const stats = getEffectiveStats(this.character);
+        const stats = this.getCurrentStats();
 
         if (this.character.baseStats.hp / stats.maxHp < REST_THRESHOLD) {
             setExploreState(this.dungeon, 'resting');
@@ -462,10 +463,12 @@ export class Game extends Scene {
             return;
         }
 
-        if (time - this.lastAttackTime < COMBAT_INTERVAL) return;
+        const stats = this.getCurrentStats();
+        const attackInterval = 1000 / Math.max(0.1, stats.attackSpeed);
+        if (time - this.lastAttackTime < attackInterval) return;
         this.lastAttackTime = time;
 
-        const result = playerAttackMonster(this.character, this.currentMonster, this.affixEffects);
+        const result = playerAttackMonster(this.character, this.currentMonster, this.affixEffects, stats);
 
         if (result.damageDealt > 0) {
             const suffix = result.isCombo ? ' 连击!' : '';
@@ -518,9 +521,9 @@ export class Game extends Scene {
     }
 
     private updateResting(dt: number) {
-        const stats = getEffectiveStats(this.character);
+        const stats = this.getCurrentStats();
         const recoverAmount = Math.floor(stats.maxHp * REST_RECOVERY_RATE * dt);
-        heal(this.character, recoverAmount);
+        heal(this.character, recoverAmount, this.getCurrentStatBonuses());
 
         if (this.character.baseStats.hp / stats.maxHp > 0.7) {
             setExploreState(this.dungeon, 'exploring');
@@ -647,14 +650,14 @@ export class Game extends Scene {
     private onPlayerDeath() {
         // 复活甲词条
         if (this.affixEffects.rebirthChance > 0 && Math.random() * 100 < this.affixEffects.rebirthChance) {
-            const stats = getEffectiveStats(this.character);
+            const stats = this.getCurrentStats();
             this.character.baseStats.hp = Math.floor(stats.maxHp * 0.5);
             this.log('复活甲触发！恢复 50% HP');
             setExploreState(this.dungeon, 'exploring');
             return;
         }
 
-        const stats = getEffectiveStats(this.character);
+        const stats = this.getCurrentStats();
         this.character.baseStats.hp = Math.floor(stats.maxHp * 0.5);
         this.character.gold = Math.floor(this.character.gold * 0.9);
         this.log('角色阵亡，自动复活，损失 10% 金币');
@@ -682,7 +685,7 @@ export class Game extends Scene {
     }
 
     private movePlayerTowardMonster(dt: number) {
-        const stats = getEffectiveStats(this.character);
+        const stats = this.getCurrentStats();
         const speed = stats.moveSpeed * dt;
 
         // 尝试走向最近的怪物
@@ -1117,7 +1120,7 @@ export class Game extends Scene {
     }
 
     private updateHUD() {
-        const stats = getEffectiveStats(this.character);
+        const stats = this.getCurrentStats();
         const hpRatio = stats.maxHp > 0 ? this.character.baseStats.hp / stats.maxHp : 0;
 
         this.hpBar.width = 200 * hpRatio;
@@ -1606,6 +1609,24 @@ export class Game extends Scene {
         return order[nextIndex];
     }
 
+    private getCurrentStatBonuses(): ExternalStatBonuses {
+        const equipBonuses = calculateEquipBonuses(this.equipped);
+        const buffBonuses = getBuffBonuses(this.activeBuffs);
+        return {
+            hp: equipBonuses.hp,
+            atk: equipBonuses.atk + buffBonuses.atk,
+            def: equipBonuses.def + buffBonuses.def,
+            attackSpeedPct: equipBonuses.attackSpeed + buffBonuses.attackSpeed,
+            critRate: equipBonuses.critRate + buffBonuses.critRate,
+            critDamage: equipBonuses.critDamage,
+            moveSpeed: equipBonuses.moveSpeed,
+        };
+    }
+
+    private getCurrentStats() {
+        return getEffectiveStats(this.character, this.getCurrentStatBonuses());
+    }
+
     private getCompareTarget(equipment: Equipment): Equipment | null {
         if (equipment.slot === 'ring') {
             const ring1 = getEquipped(this.equipped, 'ring1');
@@ -1782,7 +1803,7 @@ export class Game extends Scene {
         closeBtn.on('pointerdown', () => this.closeUI());
         elements.push(closeBtn);
 
-        const stats = getEffectiveStats(this.character);
+        const stats = this.getCurrentStats();
         const bonuses = calculateEquipBonuses(this.equipped);
 
         const statLines = [
@@ -2178,7 +2199,7 @@ export class Game extends Scene {
 
             const useBtn = this.add.text(700, cy + 10, '[使用]', { fontSize: '12px', color: '#3498db' }).setDepth(203).setInteractive();
             useBtn.on('pointerdown', () => {
-                const result = useConsumable(cons, this.character, this.activeBuffs, Date.now());
+                const result = useConsumable(cons, this.character, this.activeBuffs, Date.now(), this.getCurrentStatBonuses());
                 if (result.success) {
                     this.log(result.message);
                     this.consumables = this.consumables.filter(c => c.count > 0);

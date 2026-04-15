@@ -6,6 +6,16 @@ import {
     expForLevel,
 } from '../models';
 
+export interface ExternalStatBonuses {
+    hp?: number;
+    atk?: number;
+    def?: number;
+    attackSpeedPct?: number;
+    critRate?: number;
+    critDamage?: number;
+    moveSpeed?: number;
+}
+
 /** 创建初始角色 */
 export function createCharacter(name: string): CharacterData {
     return {
@@ -31,20 +41,22 @@ export function createCharacter(name: string): CharacterData {
     };
 }
 
-/** 计算实际属性（基础 + 属性点加成） */
-export function getEffectiveStats(char: CharacterData): CharacterStats {
+/** 计算实际属性（基础 + 属性点加成 + 运行时加成） */
+export function getEffectiveStats(char: CharacterData, bonuses?: ExternalStatBonuses): CharacterStats {
     const a = char.allocatedStats;
     const p = STAT_PER_POINT;
     const b = char.baseStats;
+    const runtime = bonuses ?? {};
+    const baseAttackSpeed = b.attackSpeed + a.attackSpeed * p.attackSpeed;
     return {
-        hp: b.hp + Math.floor(a.hp * p.hp),
-        maxHp: b.maxHp + Math.floor(a.hp * p.hp),
-        atk: b.atk + Math.floor(a.atk * p.atk),
-        def: b.def + Math.floor(a.def * p.def),
-        attackSpeed: b.attackSpeed + a.attackSpeed * p.attackSpeed,
-        critRate: b.critRate + a.critRate * p.critRate,
-        critDamage: b.critDamage + a.critDamage * p.critDamage,
-        moveSpeed: b.moveSpeed + Math.floor(a.moveSpeed * p.moveSpeed),
+        hp: b.hp + Math.floor(a.hp * p.hp) + (runtime.hp ?? 0),
+        maxHp: b.maxHp + Math.floor(a.hp * p.hp) + (runtime.hp ?? 0),
+        atk: b.atk + Math.floor(a.atk * p.atk) + (runtime.atk ?? 0),
+        def: b.def + Math.floor(a.def * p.def) + (runtime.def ?? 0),
+        attackSpeed: Math.max(0.1, baseAttackSpeed * (1 + (runtime.attackSpeedPct ?? 0) / 100)),
+        critRate: b.critRate + a.critRate * p.critRate + (runtime.critRate ?? 0),
+        critDamage: b.critDamage + a.critDamage * p.critDamage + (runtime.critDamage ?? 0),
+        moveSpeed: b.moveSpeed + Math.floor(a.moveSpeed * p.moveSpeed) + (runtime.moveSpeed ?? 0),
     };
 }
 
@@ -88,16 +100,16 @@ export function allocateStatPoint(char: CharacterData, stat: keyof AllocatedStat
 }
 
 /** 角色受到伤害 */
-export function takeDamage(char: CharacterData, damage: number): boolean {
-    const stats = getEffectiveStats(char);
+export function takeDamage(char: CharacterData, damage: number, bonuses?: ExternalStatBonuses): boolean {
+    const stats = getEffectiveStats(char, bonuses);
     const actualDamage = Math.max(1, damage - stats.def);
     char.baseStats.hp = Math.max(0, char.baseStats.hp - actualDamage);
     return char.baseStats.hp <= 0;
 }
 
 /** 角色回血 */
-export function heal(char: CharacterData, amount: number): void {
-    const stats = getEffectiveStats(char);
+export function heal(char: CharacterData, amount: number, bonuses?: ExternalStatBonuses): void {
+    const stats = getEffectiveStats(char, bonuses);
     char.baseStats.hp = Math.min(stats.maxHp, char.baseStats.hp + amount);
 }
 

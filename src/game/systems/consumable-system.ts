@@ -1,7 +1,7 @@
 import type { CharacterData } from '../models/character';
 import type { Consumable, ConsumableType, ActiveBuff } from '../models/consumable';
 import { CONSUMABLE_DEFS, POTION_HEAL_RATIO } from '../models/consumable';
-import { heal, getEffectiveStats } from './character-system';
+import { heal, getEffectiveStats, type ExternalStatBonuses } from './character-system';
 
 let consumableIdCounter = 0;
 
@@ -20,11 +20,12 @@ export function useConsumable(
     character: CharacterData,
     activeBuffs: ActiveBuff[],
     now: number,
+    statBonuses?: ExternalStatBonuses,
 ): { success: boolean; message: string } {
     const def = CONSUMABLE_DEFS[consumable.type];
 
     if (def.category === 'potion') {
-        return usePotion(consumable, character, def.name);
+        return usePotion(consumable, character, def.name, statBonuses);
     } else {
         return useBuff(consumable, character, activeBuffs, now, def.name);
     }
@@ -35,11 +36,12 @@ function usePotion(
     consumable: Consumable,
     character: CharacterData,
     name: string,
+    statBonuses?: ExternalStatBonuses,
 ): { success: boolean; message: string } {
     const ratio = POTION_HEAL_RATIO[consumable.type] ?? 0;
     if (ratio <= 0) return { success: false, message: '无法使用' };
 
-    const stats = getEffectiveStats(character);
+    const stats = getEffectiveStats(character, statBonuses);
     const healAmount = Math.floor(stats.maxHp * ratio);
 
     if (character.baseStats.hp >= stats.maxHp) {
@@ -47,7 +49,7 @@ function usePotion(
     }
 
     consumable.count--;
-    heal(character, healAmount);
+    heal(character, healAmount, statBonuses);
     return { success: true, message: `使用${name}，回复 ${healAmount} HP` };
 }
 
@@ -148,8 +150,9 @@ export function autoUsePotion(
     consumables: Consumable[],
     character: CharacterData,
     threshold = 0.3,
+    statBonuses?: ExternalStatBonuses,
 ): { used: boolean; message: string } {
-    const stats = getEffectiveStats(character);
+    const stats = getEffectiveStats(character, statBonuses);
     if (character.baseStats.hp / stats.maxHp >= threshold) {
         return { used: false, message: '' };
     }
@@ -166,7 +169,7 @@ export function autoUsePotion(
         const idx = consumables.findIndex(c => c.type === potionType && c.count > 0);
         if (idx >= 0) {
             consumables[idx].count--;
-            heal(character, healAmount);
+            heal(character, healAmount, statBonuses);
             const def = CONSUMABLE_DEFS[potionType];
             return { used: true, message: `自动使用${def.name}` };
         }
@@ -179,7 +182,7 @@ export function autoUsePotion(
             const ratio = POTION_HEAL_RATIO[potionType] ?? 0;
             const healAmount = Math.floor(stats.maxHp * ratio);
             consumables[idx].count--;
-            heal(character, healAmount);
+            heal(character, healAmount, statBonuses);
             const def = CONSUMABLE_DEFS[potionType];
             return { used: true, message: `自动使用${def.name}` };
         }
