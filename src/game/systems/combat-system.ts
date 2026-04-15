@@ -135,7 +135,13 @@ export function calculateIncomingDamage(rawDamage: number, charDef: number, effe
 }
 
 /** 执行一次角色攻击怪物（含全部词条效果） */
-export function playerAttackMonster(char: CharacterData, monster: Monster, effects: AffixEffects, stats?: CharacterStats): CombatResult {
+export function playerAttackMonster(
+    char: CharacterData,
+    monster: Monster,
+    effects: AffixEffects,
+    stats?: CharacterStats,
+    monsterCanRetaliate = true,
+): CombatResult {
     const effectiveStats = stats ?? getEffectiveStats(char);
     const targetHpRatio = monster.stats.maxHp > 0 ? monster.stats.hp / monster.stats.maxHp : 1;
     const selfHpRatio = effectiveStats.maxHp > 0 ? char.baseStats.hp / effectiveStats.maxHp : 1;
@@ -253,7 +259,7 @@ export function playerAttackMonster(char: CharacterData, monster: Monster, effec
     let playerDied = false;
     let isEvaded = false;
 
-    if (!monsterKilled && !skipRetaliation) {
+    if (!monsterKilled && !skipRetaliation && monsterCanRetaliate) {
         const rawMonsterDmg = getMonsterAttack(monster);
         const { damage: incomingDmg, evaded } = calculateIncomingDamage(rawMonsterDmg, effectiveStats.def, effects);
         damageReceived = incomingDmg;

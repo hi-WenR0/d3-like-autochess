@@ -9,12 +9,14 @@ import {
     type EquipSlot,
     type WearableSlot,
     type Rarity,
+    type CombatStyle,
     type MovementStrategy,
     getZoneForFloor,
     RARITY_CONFIG,
     BASE_CLASS_CONFIG,
     ADVANCEMENT_REQUIREMENT_LEVEL,
     getSpecializationDef,
+    getCombatStyleProfile,
     EQUIP_SLOTS,
     INVENTORY_CAPACITY,
     sellPrice,
@@ -118,11 +120,6 @@ const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
 const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
-const PLAYER_AI_APPROACH_DISTANCE = 56;
-const PLAYER_AI_RETREAT_DISTANCE = 170;
-const MONSTER_AI_APPROACH_DISTANCE = 52;
-const MONSTER_AI_RETREAT_DISTANCE = 145;
-const COMBAT_ENGAGE_DISTANCE = 84;
 
 const DEPTH = {
     WORLD_TILE: 0,
@@ -253,6 +250,8 @@ export class Game extends Scene {
             this.dungeon = createDungeonState();
             this.affixEffects = collectAffixEffects(this.equipped);
         }
+
+        this.playerMovementStrategy = getCombatStyleProfile(this.character.combatStyle).defaultMovementStrategy;
 
         this.renderDungeon();
         this.renderPlayer();
@@ -488,6 +487,8 @@ export class Game extends Scene {
 
         const stats = this.getCurrentStats();
         this.updateCombatMovement(this.currentMonster, dt, stats.moveSpeed);
+        const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
+        const monsterCombatProfile = getCombatStyleProfile(this.currentMonster.combatStyle);
 
         const distanceToTarget = PhaserMath.Distance.Between(
             this.playerSprite.x,
@@ -495,7 +496,7 @@ export class Game extends Scene {
             this.currentMonster.x,
             this.currentMonster.y,
         );
-        if (distanceToTarget > COMBAT_ENGAGE_DISTANCE) {
+        if (distanceToTarget > playerCombatProfile.attackRange) {
             return;
         }
 
@@ -503,7 +504,13 @@ export class Game extends Scene {
         if (time - this.lastAttackTime < attackInterval) return;
         this.lastAttackTime = time;
 
-        const result = playerAttackMonster(this.character, this.currentMonster, this.affixEffects, stats);
+        const result = playerAttackMonster(
+            this.character,
+            this.currentMonster,
+            this.affixEffects,
+            stats,
+            distanceToTarget <= monsterCombatProfile.attackRange,
+        );
 
         if (result.damageDealt > 0) {
             const suffixParts: string[] = [];
@@ -730,6 +737,7 @@ export class Game extends Scene {
         const stats = this.getCurrentStats();
         const speed = stats.moveSpeed * dt;
         const nearest = this.findNearestMonster();
+        const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
 
         if (nearest) {
             const next = this.computeStrategyPosition(
@@ -739,8 +747,8 @@ export class Game extends Scene {
                 nearest.y,
                 speed,
                 this.playerMovementStrategy,
-                PLAYER_AI_APPROACH_DISTANCE,
-                PLAYER_AI_RETREAT_DISTANCE,
+                playerCombatProfile.approachDistance,
+                playerCombatProfile.retreatDistance,
             );
             this.playerSprite.setPosition(next.x, next.y);
             return;
@@ -758,6 +766,8 @@ export class Game extends Scene {
     }
 
     private updateCombatMovement(monster: Monster, dt: number, playerMoveSpeed: number) {
+        const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
+        const monsterCombatProfile = getCombatStyleProfile(monster.combatStyle);
         const playerStep = playerMoveSpeed * dt;
         const playerNext = this.computeStrategyPosition(
             this.playerSprite.x,
@@ -766,8 +776,8 @@ export class Game extends Scene {
             monster.y,
             playerStep,
             this.playerMovementStrategy,
-            PLAYER_AI_APPROACH_DISTANCE,
-            PLAYER_AI_RETREAT_DISTANCE,
+            playerCombatProfile.approachDistance,
+            playerCombatProfile.retreatDistance,
         );
         this.playerSprite.setPosition(playerNext.x, playerNext.y);
 
@@ -779,8 +789,8 @@ export class Game extends Scene {
             this.playerSprite.y,
             monsterStep,
             monster.movementStrategy,
-            MONSTER_AI_APPROACH_DISTANCE,
-            MONSTER_AI_RETREAT_DISTANCE,
+            monsterCombatProfile.approachDistance,
+            monsterCombatProfile.retreatDistance,
         );
         monster.x = monsterNext.x;
         monster.y = monsterNext.y;
@@ -789,6 +799,10 @@ export class Game extends Scene {
         if (sprite) {
             sprite.setPosition(monsterNext.x, monsterNext.y);
         }
+    }
+
+    private getCombatStyleLabel(style: CombatStyle): string {
+        return getCombatStyleProfile(style).label;
     }
 
     private computeStrategyPosition(
@@ -1148,10 +1162,10 @@ export class Game extends Scene {
             x: 512,
             y: 300,
             content: specializationDef
-                ? `职业: ${classDef.label}  |  专精: ${specializationDef.label} · ${specializationDef.passiveName}`
+                ? `职业: ${classDef.label} · ${this.getCombatStyleLabel(this.character.combatStyle)}  |  专精: ${specializationDef.label} · ${specializationDef.passiveName}`
                 : canAdvance
-                    ? `职业: ${classDef.label}  |  已满足二次转职条件，前往职业导师`
-                    : `职业: ${classDef.label}  |  二次转职将在 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL} 解锁`,
+                    ? `职业: ${classDef.label} · ${this.getCombatStyleLabel(this.character.combatStyle)}  |  已满足二次转职条件，前往职业导师`
+                    : `职业: ${classDef.label} · ${this.getCombatStyleLabel(this.character.combatStyle)}  |  二次转职将在 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL} 解锁`,
             width: 540,
             height: 34,
             minFontSize: 11,
@@ -2036,7 +2050,7 @@ export class Game extends Scene {
         const classLine = addBoundedText(this, {
             x: 512,
             y: 124,
-            content: `职业: ${classDef.label}  |  专精: ${specializationDef?.label ?? '未转职'}`,
+            content: `职业: ${classDef.label} · ${this.getCombatStyleLabel(this.character.combatStyle)}  |  专精: ${specializationDef?.label ?? '未转职'}`,
             width: 320,
             height: 20,
             minFontSize: 11,

@@ -1,13 +1,14 @@
+import type { CombatStyle, MovementStrategy } from './combat';
+
 /** 怪物类型 */
 export type MonsterType = 'normal' | 'elite' | 'rare' | 'boss';
-export type MovementStrategy = 'approach' | 'retreat';
 
 /** 怪物类型配置 */
 export const MONSTER_TYPE_CONFIG: Record<MonsterType, MonsterTypeDef> = {
-    normal: { hpMultiplier: 1.0,   atkMultiplier: 1.0,   skillCount: 0, guaranteedDrop: false, minDropRarity: 'common', movementStrategy: 'approach', moveSpeedMultiplier: 1.0 },
-    elite:  { hpMultiplier: 1.5,   atkMultiplier: 1.2,   skillCount: 2, guaranteedDrop: true,  minDropRarity: 'magic', movementStrategy: 'approach', moveSpeedMultiplier: 1.05 },
-    rare:   { hpMultiplier: 2.0,   atkMultiplier: 1.5,   skillCount: 3, guaranteedDrop: true,  minDropRarity: 'rare', movementStrategy: 'retreat', moveSpeedMultiplier: 0.95 },
-    boss:   { hpMultiplier: 5.0,   atkMultiplier: 2.0,   skillCount: 5, guaranteedDrop: true,  minDropRarity: 'legendary', movementStrategy: 'approach', moveSpeedMultiplier: 0.9 },
+    normal: { hpMultiplier: 1.0,   atkMultiplier: 1.0,   skillCount: 0, guaranteedDrop: false, minDropRarity: 'common', movementStrategy: 'approach', combatStyle: 'melee', moveSpeedMultiplier: 1.0 },
+    elite:  { hpMultiplier: 1.5,   atkMultiplier: 1.2,   skillCount: 2, guaranteedDrop: true,  minDropRarity: 'magic', movementStrategy: 'approach', combatStyle: 'melee', moveSpeedMultiplier: 1.05 },
+    rare:   { hpMultiplier: 2.0,   atkMultiplier: 1.5,   skillCount: 3, guaranteedDrop: true,  minDropRarity: 'rare', movementStrategy: 'retreat', combatStyle: 'ranged', moveSpeedMultiplier: 0.95 },
+    boss:   { hpMultiplier: 5.0,   atkMultiplier: 2.0,   skillCount: 5, guaranteedDrop: true,  minDropRarity: 'legendary', movementStrategy: 'approach', combatStyle: 'melee', moveSpeedMultiplier: 0.9 },
 };
 
 export interface MonsterTypeDef {
@@ -17,6 +18,7 @@ export interface MonsterTypeDef {
     guaranteedDrop: boolean;
     minDropRarity: string;
     movementStrategy: MovementStrategy;
+    combatStyle: CombatStyle;
     moveSpeedMultiplier: number;
 }
 
@@ -60,6 +62,7 @@ export interface Monster {
     type: MonsterType;
     floor: number;
     stats: MonsterStats;
+    combatStyle: CombatStyle;
     movementStrategy: MovementStrategy;
     x: number;
     y: number;

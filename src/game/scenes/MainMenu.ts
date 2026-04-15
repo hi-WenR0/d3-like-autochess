@@ -1,5 +1,5 @@
 import { Scene, GameObjects } from 'phaser';
-import { BASE_CLASS_CONFIG, type CharacterBaseClass } from '../models';
+import { BASE_CLASS_CONFIG, getCombatStyleProfile, type CharacterBaseClass } from '../models';
 import { addBoundedText } from '../ui/text-layout';
 import {
     deleteSave,
@@ -312,9 +312,13 @@ export class MainMenu extends Scene {
                     color: '#d6e6f5',
                 },
             });
+            const combatStyle = this.add.text(x, y - 38, `战斗方式: ${getCombatStyleProfile(classDef.combatStyle).label}`, {
+                fontSize: '13px',
+                color: '#f1c40f',
+            }).setOrigin(0.5);
             const stats = addBoundedText(this, {
                 x: x - 92,
-                y: y - 16,
+                y: y - 4,
                 content: [
                     `HP ${classDef.startingStats.maxHp}`,
                     `ATK ${classDef.startingStats.atk}`,
@@ -359,7 +363,7 @@ export class MainMenu extends Scene {
                 border: parseInt(classDef.color.replace('#', ''), 16),
             });
 
-            elements.push(card, name, desc, stats, branchTitle, branchList, chooseBtn);
+            elements.push(card, name, desc, combatStyle, stats, branchTitle, branchList, chooseBtn);
         });
 
         this.viewContainer = this.add.container(0, 0, elements);

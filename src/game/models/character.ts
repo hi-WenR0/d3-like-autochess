@@ -1,3 +1,5 @@
+import type { CombatStyle } from './combat';
+
 /** 角色基础属性 */
 export interface CharacterStats {
     hp: number;
@@ -36,6 +38,7 @@ export interface CharacterBaseClassDef {
     label: string;
     description: string;
     color: string;
+    combatStyle: CombatStyle;
     startingStats: CharacterStats;
     growth: CharacterGrowth;
     specializations: CharacterSpecializationDef[];
@@ -65,6 +68,7 @@ export interface CharacterData {
     id: string;
     name: string;
     baseClass: CharacterBaseClass;
+    combatStyle: CombatStyle;
     specialization: CharacterSpecialization | null;
     advancementState: CharacterAdvancementState;
     level: number;
@@ -107,6 +111,7 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
         label: '狂战士',
         description: '高生命、高攻击的近战起手，升级收益偏向生存与压制。',
         color: '#e74c3c',
+        combatStyle: 'melee',
         startingStats: {
             hp: 240,
             maxHp: 240,
@@ -154,6 +159,7 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
         label: '游侠',
         description: '高攻速、高暴击率的灵活输出，升级收益偏向节奏与机动。',
         color: '#27ae60',
+        combatStyle: 'ranged',
         startingStats: {
             hp: 190,
             maxHp: 190,
@@ -201,6 +207,7 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
         label: '法师',
         description: '高暴击伤害与均衡属性的施法者，升级收益偏向输出上限。',
         color: '#3498db',
+        combatStyle: 'ranged',
         startingStats: {
             hp: 180,
             maxHp: 180,

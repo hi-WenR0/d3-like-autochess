@@ -29,6 +29,7 @@ export function createCharacter(name: string, baseClass: CharacterBaseClass = 'b
         id: generateId(),
         name,
         baseClass,
+        combatStyle: classDef.combatStyle,
         specialization: null,
         advancementState: 'base',
         level: 1,
@@ -54,6 +55,7 @@ export function normalizeCharacterData(char: CharacterData): CharacterData {
     return {
         ...char,
         baseClass: normalizedClass,
+        combatStyle: BASE_CLASS_CONFIG[normalizedClass].combatStyle,
         specialization: specializationDef?.id ?? null,
         advancementState,
     };

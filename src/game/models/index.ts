@@ -1,3 +1,6 @@
+export type { CombatStyle, MovementStrategy, CombatStyleProfile } from './combat';
+export { COMBAT_STYLE_PROFILES, getCombatStyleProfile } from './combat';
+
 export type {
     CharacterStats,
     CharacterData,
@@ -24,7 +27,7 @@ export { EQUIP_SLOTS, SLOT_TO_WEARABLE, RARITY_CONFIG, sellPrice } from './equip
 export type { AffixId, AffixCategory, AffixDef, Affix } from './affix';
 export { OFFENSIVE_AFFIXES, DEFENSIVE_AFFIXES, SPECIAL_AFFIXES, ALL_AFFIXES } from './affix';
 
-export type { MonsterType, MonsterTypeDef, MonsterStats, Monster, MovementStrategy } from './monster';
+export type { MonsterType, MonsterTypeDef, MonsterStats, Monster } from './monster';
 export { MONSTER_TYPE_CONFIG, MONSTER_BASE_STATS, monsterStatsForFloor, MONSTER_SPAWN_WEIGHTS } from './monster';
 
 export type { ItemType, InventoryItem, InventoryData } from './inventory';

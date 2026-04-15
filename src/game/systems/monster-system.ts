@@ -27,6 +27,7 @@ export function spawnMonster(floor: number, x: number, y: number): Monster {
         type,
         floor,
         stats,
+        combatStyle: monsterTypeConfig.combatStyle,
         movementStrategy: monsterTypeConfig.movementStrategy,
         x,
         y,
