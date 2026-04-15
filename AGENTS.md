@@ -168,8 +168,36 @@ new Game(config);
 
 This project has no tests configured. Do not add test files unless explicitly requested.
 
+## Feature Tracking
+
+The project uses `FEATURES.md` to track feature requirements, development progress, and priorities. AI agents should:
+
+1. **Consult FEATURES.md** before implementing new features
+2. **Update FEATURES.md** when adding new feature requirements
+3. **Track progress** by updating feature status in FEATURES.md
+4. **Reference features** in commit messages when implementing tracked features
+
+### Feature Status Definitions
+
+- **Pending**: Feature proposed but not yet evaluated
+- **Planned**: Evaluated and scheduled for future implementation
+- **In Development**: Currently being implemented
+- **Testing**: Development complete, undergoing testing
+- **Completed**: Implemented and tested
+- **Deprecated**: No longer planned for implementation
+- **Blocked**: Temporarily blocked due to dependencies or technical limitations
+
+### When to Update FEATURES.md
+
+- When user requests a new feature
+- When starting work on a planned feature
+- When completing a feature implementation
+- When encountering blockers or changing priorities
+- When deprecating or postponing a feature
+
 ## References
 
 - [Phaser 4 Documentation](https://docs.phaser.io/)
 - [Phaser 4 Examples](https://labs.phaser.io/)
 - [Phaser 4 Migration Guide](https://phaser.io/skills/v4-migration)
+- [FEATURES.md](./FEATURES.md) - Feature tracking document
