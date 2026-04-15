@@ -1,6 +1,7 @@
 import { Math as PhaserMath, Scene } from 'phaser';
 import {
     type CharacterData,
+    type CharacterBaseClass,
     type Monster,
     type DungeonState,
     type Equipment,
@@ -11,6 +12,9 @@ import {
     type MovementStrategy,
     getZoneForFloor,
     RARITY_CONFIG,
+    BASE_CLASS_CONFIG,
+    ADVANCEMENT_REQUIREMENT_LEVEL,
+    getSpecializationDef,
     EQUIP_SLOTS,
     INVENTORY_CAPACITY,
     sellPrice,
@@ -25,6 +29,9 @@ import {
     createCharacter,
     getEffectiveStats,
     addExperience,
+    canAdvanceSpecialization,
+    chooseSpecialization,
+    getSpecializationBonuses,
     heal,
     isAlive,
     allocateStatPoint,
@@ -101,6 +108,7 @@ import {
     type ActiveBuff,
     CONSUMABLE_DEFS,
 } from '../models/consumable';
+import { addBoundedText } from '../ui/text-layout';
 
 const DUNGEON_WIDTH = 1024;
 const DUNGEON_HEIGHT = 600;
@@ -217,7 +225,7 @@ export class Game extends Scene {
         super('Game');
     }
 
-    create(data?: { newGame?: boolean }) {
+    create(data?: { newGame?: boolean; baseClass?: CharacterBaseClass }) {
         const forceNewGame = data?.newGame ?? false;
         // 尝试加载存档
         const saved = forceNewGame ? null : loadGame();
@@ -239,7 +247,7 @@ export class Game extends Scene {
                 this.showOfflineRewards(rewards);
             }
         } else {
-            this.character = createCharacter('冒险者');
+            this.character = createCharacter('冒险者', data?.baseClass ?? 'berserker');
             this.inventory = createInventory();
             this.equipped = createEquippedItems();
             this.dungeon = createDungeonState();
@@ -259,7 +267,7 @@ export class Game extends Scene {
 
     private getCurrentSaveData(): SaveData {
         return {
-            version: 2,
+            version: 3,
             timestamp: Date.now(),
             character: this.character,
             inventory: this.inventory,
@@ -364,7 +372,8 @@ export class Game extends Scene {
     // ─── 角色渲染 ───
 
     private renderPlayer() {
-        const body = this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, 0x4fc3f7);
+        const classColor = parseInt(BASE_CLASS_CONFIG[this.character.baseClass].color.replace('#', ''), 16);
+        const body = this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, classColor);
         const label = this.add.text(0, -PLAYER_SIZE, '你', { fontSize: '10px', color: '#ffffff' }).setOrigin(0.5);
         this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(DEPTH.WORLD_ENTITY);
     }
@@ -497,12 +506,19 @@ export class Game extends Scene {
         const result = playerAttackMonster(this.character, this.currentMonster, this.affixEffects, stats);
 
         if (result.damageDealt > 0) {
-            const suffix = result.isCombo ? ' 连击!' : '';
+            const suffixParts: string[] = [];
+            if (result.isCombo) suffixParts.push('连击!');
+            if (result.specializationProc) suffixParts.push(result.specializationProc);
+            const suffix = suffixParts.length > 0 ? ` ${suffixParts.join(' ')}` : '';
             this.showDamageNumber(this.currentMonster.x, this.currentMonster.y - 30, result.damageDealt, result.isCrit, suffix);
         }
 
         if (result.lifeStealHeal > 0) {
             this.showHealNumber(this.playerSprite.x, this.playerSprite.y - 30, result.lifeStealHeal);
+        }
+
+        if (result.specializationHeal > 0) {
+            this.showHealNumber(this.playerSprite.x + 18, this.playerSprite.y - 46, result.specializationHeal);
         }
 
         if (result.isEvaded) {
@@ -1077,11 +1093,14 @@ export class Game extends Scene {
         this.hideTownOverlay();
 
         const elements: Phaser.GameObjects.GameObject[] = [];
+        const canAdvance = canAdvanceSpecialization(this.character);
+        const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
+        const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
 
         const mask = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT, 0x06111f, 0.9).setOrigin(0);
         elements.push(mask);
 
-        const panel = this.add.rectangle(182, 140, 660, 320, 0x10243a).setOrigin(0).setStrokeStyle(2, 0x2f5c88);
+        const panel = this.add.rectangle(182, 120, 660, 360, 0x10243a).setOrigin(0).setStrokeStyle(2, 0x2f5c88);
         elements.push(panel);
 
         const title = this.add.text(512, 195, '主城', {
@@ -1091,20 +1110,119 @@ export class Game extends Scene {
         }).setOrigin(0.5);
         elements.push(title);
 
-        const desc = this.add.text(512, 250, '在主城整理背包、出售装备，然后进入地牢战斗。', {
-            fontSize: '15px',
-            color: '#d6e6f5',
-        }).setOrigin(0.5);
+        const desc = addBoundedText(this, {
+            x: 512,
+            y: 238,
+            content: '在主城整理背包、出售装备，然后进入地牢战斗。',
+            width: 520,
+            height: 24,
+            minFontSize: 13,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '15px',
+                color: '#d6e6f5',
+                align: 'center',
+            },
+        });
         elements.push(desc);
 
-        const hint = this.add.text(512, 282, '提示：装备出售/分解仅能在主城商店进行。', {
-            fontSize: '13px',
-            color: '#f39c12',
-        }).setOrigin(0.5);
+        const hint = addBoundedText(this, {
+            x: 512,
+            y: 268,
+            content: '提示：装备出售/分解仅能在主城商店进行。',
+            width: 520,
+            height: 22,
+            minFontSize: 11,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '13px',
+                color: '#f39c12',
+                align: 'center',
+            },
+        });
         elements.push(hint);
 
-        const enterBtnBg = this.add.rectangle(512, 355, 220, 50, 0x1b7f3a).setStrokeStyle(2, 0x77d98e).setInteractive({ useHandCursor: true });
-        const enterBtnText = this.add.text(512, 355, '进入地牢', {
+        const classStatus = addBoundedText(this, {
+            x: 512,
+            y: 300,
+            content: specializationDef
+                ? `职业: ${classDef.label}  |  专精: ${specializationDef.label} · ${specializationDef.passiveName}`
+                : canAdvance
+                    ? `职业: ${classDef.label}  |  已满足二次转职条件，前往职业导师`
+                    : `职业: ${classDef.label}  |  二次转职将在 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL} 解锁`,
+            width: 540,
+            height: 34,
+            minFontSize: 11,
+            maxLines: 2,
+            originX: 0.5,
+            style: {
+                fontSize: '13px',
+                color: specializationDef ? classDef.color : canAdvance ? '#2ecc71' : '#95a5a6',
+                align: 'center',
+            },
+        });
+        elements.push(classStatus);
+
+        const mentorColor = specializationDef ? 0x425466 : canAdvance ? 0x6b3fa0 : 0x3c4350;
+        const mentorBorder = specializationDef ? 0x95a5a6 : canAdvance ? 0xc39bff : 0x66707d;
+        const mentorBtnBg = this.add.rectangle(355, 395, 220, 46, mentorColor).setStrokeStyle(2, mentorBorder).setInteractive({ useHandCursor: true });
+        const mentorBtnText = addBoundedText(this, {
+            x: 355,
+            y: 386,
+            content: specializationDef ? '已完成转职' : canAdvance ? '职业导师' : `Lv.${ADVANCEMENT_REQUIREMENT_LEVEL} 解锁`,
+            width: 180,
+            height: 18,
+            minFontSize: 14,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '18px',
+                color: specializationDef ? '#d5d8dc' : canAdvance ? '#ffffff' : '#bdc3c7',
+                fontStyle: 'bold',
+                align: 'center',
+            },
+        });
+        const mentorSubtext = addBoundedText(this, {
+            x: 355,
+            y: 402,
+            content: specializationDef
+                ? '查看专精详情'
+                : canAdvance
+                    ? '选择一条专精分支'
+                    : `当前等级 ${this.character.level}/${ADVANCEMENT_REQUIREMENT_LEVEL}`,
+            width: 180,
+            height: 16,
+            minFontSize: 10,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '11px',
+                color: specializationDef ? '#bdc3c7' : canAdvance ? '#e6cc80' : '#95a5a6',
+                align: 'center',
+            },
+        });
+        mentorBtnBg.on('pointerover', () => {
+            if (specializationDef) return;
+            mentorBtnBg.setFillStyle(canAdvance ? 0x7a4bb5 : 0x4a5362);
+        });
+        mentorBtnBg.on('pointerout', () => mentorBtnBg.setFillStyle(mentorColor));
+        mentorBtnBg.on('pointerdown', () => {
+            if (specializationDef) {
+                this.openMentorDetailPanel();
+                return;
+            }
+            if (!canAdvance) {
+                this.openMentorDetailPanel();
+                return;
+            }
+            this.openSpecializationPanel();
+        });
+        elements.push(mentorBtnBg, mentorBtnText, mentorSubtext);
+
+        const enterBtnBg = this.add.rectangle(669, 395, 220, 50, 0x1b7f3a).setStrokeStyle(2, 0x77d98e).setInteractive({ useHandCursor: true });
+        const enterBtnText = this.add.text(669, 395, '进入地牢', {
             fontSize: '20px',
             color: '#ffffff',
             fontStyle: 'bold',
@@ -1718,14 +1836,15 @@ export class Game extends Scene {
     private getCurrentStatBonuses(): ExternalStatBonuses {
         const equipBonuses = calculateEquipBonuses(this.equipped);
         const buffBonuses = getBuffBonuses(this.activeBuffs);
+        const specializationBonuses = getSpecializationBonuses(this.character);
         return {
-            hp: equipBonuses.hp,
-            atk: equipBonuses.atk + buffBonuses.atk,
-            def: equipBonuses.def + buffBonuses.def,
-            attackSpeedPct: equipBonuses.attackSpeed + buffBonuses.attackSpeed,
-            critRate: equipBonuses.critRate + buffBonuses.critRate,
-            critDamage: equipBonuses.critDamage,
-            moveSpeed: equipBonuses.moveSpeed,
+            hp: equipBonuses.hp + (specializationBonuses.hp ?? 0),
+            atk: equipBonuses.atk + buffBonuses.atk + (specializationBonuses.atk ?? 0),
+            def: equipBonuses.def + buffBonuses.def + (specializationBonuses.def ?? 0),
+            attackSpeedPct: equipBonuses.attackSpeed + buffBonuses.attackSpeed + (specializationBonuses.attackSpeedPct ?? 0),
+            critRate: equipBonuses.critRate + buffBonuses.critRate + (specializationBonuses.critRate ?? 0),
+            critDamage: equipBonuses.critDamage + (specializationBonuses.critDamage ?? 0),
+            moveSpeed: equipBonuses.moveSpeed + (specializationBonuses.moveSpeed ?? 0),
         };
     }
 
@@ -1911,6 +2030,55 @@ export class Game extends Scene {
 
         const stats = this.getCurrentStats();
         const bonuses = calculateEquipBonuses(this.equipped);
+        const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
+
+        const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
+        const classLine = addBoundedText(this, {
+            x: 512,
+            y: 124,
+            content: `职业: ${classDef.label}  |  专精: ${specializationDef?.label ?? '未转职'}`,
+            width: 320,
+            height: 20,
+            minFontSize: 11,
+            maxLines: 1,
+            originX: 0.5,
+            style: { fontSize: '13px', color: classDef.color, align: 'center' },
+        }).setDepth(202);
+        elements.push(classLine);
+        if (!specializationDef) {
+            const unlockLine = addBoundedText(this, {
+                x: 512,
+                y: 143,
+                content: this.character.level >= ADVANCEMENT_REQUIREMENT_LEVEL
+                    ? '已满足二次转职条件，可在主城职业导师处选择专精'
+                    : `二次转职解锁条件：达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL}（当前 Lv.${this.character.level}）`,
+                width: 360,
+                height: 34,
+                minFontSize: 10,
+                maxLines: 2,
+                originX: 0.5,
+                style: {
+                    fontSize: '11px',
+                    color: this.character.level >= ADVANCEMENT_REQUIREMENT_LEVEL ? '#2ecc71' : '#95a5a6',
+                    align: 'center',
+                },
+            }).setDepth(202);
+            elements.push(unlockLine);
+        }
+        if (specializationDef) {
+            const passiveLine = addBoundedText(this, {
+                x: 512,
+                y: 143,
+                content: `被动: ${specializationDef.passiveName} · ${specializationDef.passiveDescription}`,
+                width: 360,
+                height: 34,
+                minFontSize: 10,
+                maxLines: 2,
+                originX: 0.5,
+                style: { fontSize: '11px', color: '#e6cc80', align: 'center' },
+            }).setDepth(202);
+            elements.push(passiveLine);
+        }
 
         const statLines = [
             { label: 'HP', value: `${this.character.baseStats.hp}/${stats.maxHp}`, bonus: bonuses.hp, unit: '' },
@@ -1922,7 +2090,7 @@ export class Game extends Scene {
             { label: '移速', value: `${stats.moveSpeed}`, bonus: bonuses.moveSpeed, unit: '' },
         ];
 
-        let sy = 140;
+        let sy = specializationDef ? 186 : 168;
         for (const s of statLines) {
             const label = this.add.text(330, sy, s.label, { fontSize: '14px', color: '#bdc3c7' }).setDepth(202);
             const value = this.add.text(440, sy, s.value, { fontSize: '14px', color: '#ffffff' }).setDepth(202);
@@ -2138,10 +2306,388 @@ export class Game extends Scene {
 
     }
 
+    private openSpecializationPanel() {
+        if (this.gameplayPhase !== 'town') {
+            this.log('请先回到主城，再进行二次转职');
+            return;
+        }
+        if (!canAdvanceSpecialization(this.character)) {
+            this.log(`当前未满足转职条件，需达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL}`);
+            return;
+        }
+
+        this.closeUI();
+        this.isUIOpen = true;
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+        const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
+
+        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.78).setOrigin(0).setDepth(200).setInteractive();
+        elements.push(bg);
+
+        const panelBg = this.add.rectangle(180, 70, 664, 610, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, parseInt(classDef.color.replace('#', ''), 16));
+        elements.push(panelBg);
+
+        const title = addBoundedText(this, {
+            x: 512,
+            y: 88,
+            content: `${classDef.label} · 二次转职`,
+            width: 420,
+            height: 28,
+            minFontSize: 20,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '24px',
+                color: classDef.color,
+                fontStyle: 'bold',
+                align: 'center',
+            },
+        }).setDepth(202);
+        const subtitle = addBoundedText(this, {
+            x: 512,
+            y: 122,
+            content: '选择后不可更改，本次将激活对应专精被动。',
+            width: 500,
+            height: 20,
+            minFontSize: 11,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '13px',
+                color: '#bdc3c7',
+                align: 'center',
+            },
+        }).setDepth(202);
+        const closeBtn = this.add.text(814, 84, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
+        closeBtn.on('pointerdown', () => this.closeUI());
+        elements.push(title, subtitle, closeBtn);
+
+        classDef.specializations.forEach((spec, index) => {
+            const x = 210 + index * 215;
+            const y = 170;
+            const card = this.add.rectangle(x, y, 190, 420, 0x17283a, 0.96).setOrigin(0).setDepth(202).setStrokeStyle(2, parseInt(classDef.color.replace('#', ''), 16));
+            const name = addBoundedText(this, {
+                x: x + 95,
+                y: y + 20,
+                content: spec.label,
+                width: 154,
+                height: 24,
+                minFontSize: 16,
+                maxLines: 1,
+                originX: 0.5,
+                style: {
+                    fontSize: '20px',
+                    color: classDef.color,
+                    fontStyle: 'bold',
+                    align: 'center',
+                },
+            }).setDepth(203);
+            const desc = addBoundedText(this, {
+                x: x + 14,
+                y: y + 56,
+                content: spec.description,
+                width: 162,
+                height: 48,
+                minFontSize: 11,
+                lineSpacing: 6,
+                maxLines: 3,
+                style: {
+                    fontSize: '13px',
+                    color: '#d6e6f5',
+                },
+            }).setDepth(203);
+            const passiveName = addBoundedText(this, {
+                x: x + 14,
+                y: y + 118,
+                content: spec.passiveName,
+                width: 162,
+                height: 22,
+                minFontSize: 12,
+                maxLines: 1,
+                style: {
+                    fontSize: '14px',
+                    color: '#f1c40f',
+                    fontStyle: 'bold',
+                },
+            }).setDepth(203);
+            const passiveDesc = addBoundedText(this, {
+                x: x + 14,
+                y: y + 148,
+                content: spec.passiveDescription,
+                width: 162,
+                height: 68,
+                minFontSize: 10,
+                lineSpacing: 5,
+                maxLines: 4,
+                style: {
+                    fontSize: '12px',
+                    color: '#bdc3c7',
+                },
+            }).setDepth(203);
+            const bonusLines = [
+                spec.bonuses.hp ? `生命 +${spec.bonuses.hp}` : null,
+                spec.bonuses.atk ? `攻击 +${spec.bonuses.atk}` : null,
+                spec.bonuses.def ? `防御 +${spec.bonuses.def}` : null,
+                spec.bonuses.attackSpeedPct ? `攻速 +${spec.bonuses.attackSpeedPct}%` : null,
+                spec.bonuses.critRate ? `暴击率 +${spec.bonuses.critRate}%` : null,
+                spec.bonuses.critDamage ? `暴击伤害 +${spec.bonuses.critDamage}%` : null,
+                spec.bonuses.moveSpeed ? `移速 +${spec.bonuses.moveSpeed}` : null,
+            ].filter((line): line is string => line !== null);
+            const bonusTitle = addBoundedText(this, {
+                x: x + 14,
+                y: y + 228,
+                content: '转职收益',
+                width: 162,
+                height: 20,
+                minFontSize: 11,
+                maxLines: 1,
+                style: {
+                    fontSize: '13px',
+                    color: '#2ecc71',
+                    fontStyle: 'bold',
+                },
+            }).setDepth(203);
+            const bonusText = addBoundedText(this, {
+                x: x + 14,
+                y: y + 254,
+                content: bonusLines.join('\n'),
+                width: 162,
+                height: 92,
+                minFontSize: 10,
+                lineSpacing: 6,
+                maxLines: 5,
+                style: {
+                    fontSize: '12px',
+                    color: '#2ecc71',
+                },
+            }).setDepth(203);
+            const chooseBtn = this.add.rectangle(x + 95, y + 376, 146, 40, 0x20435f).setDepth(203).setStrokeStyle(2, parseInt(classDef.color.replace('#', ''), 16)).setInteractive({ useHandCursor: true });
+            const chooseText = this.add.text(x + 95, y + 376, '确认转职', {
+                fontSize: '16px',
+                color: '#ffffff',
+                fontStyle: 'bold',
+            }).setOrigin(0.5).setDepth(204);
+            chooseBtn.on('pointerover', () => chooseBtn.setFillStyle(0x2a587c));
+            chooseBtn.on('pointerout', () => chooseBtn.setFillStyle(0x20435f));
+            chooseBtn.on('pointerdown', () => this.confirmSpecialization(spec.id));
+            elements.push(card, name, desc, passiveName, passiveDesc, bonusTitle, bonusText, chooseBtn, chooseText);
+        });
+
+        const panelRect: PanelRect = { x: 180, y: 70, width: 664, height: 610 };
+        this.createManagedPanel(elements, panelRect, panelBg);
+    }
+
+    private openMentorDetailPanel() {
+        if (this.gameplayPhase !== 'town') {
+            this.log('请先回到主城，再查看职业导师信息');
+            return;
+        }
+
+        this.closeUI();
+        this.isUIOpen = true;
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+        const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
+        const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
+        const canAdvance = canAdvanceSpecialization(this.character);
+
+        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.78).setOrigin(0).setDepth(200).setInteractive();
+        elements.push(bg);
+
+        const panelBg = this.add.rectangle(250, 110, 524, 500, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, parseInt(classDef.color.replace('#', ''), 16));
+        elements.push(panelBg);
+
+        const title = addBoundedText(this, {
+            x: 512,
+            y: 136,
+            content: `${classDef.label} · 职业导师`,
+            width: 360,
+            height: 26,
+            minFontSize: 20,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '24px',
+                color: classDef.color,
+                fontStyle: 'bold',
+                align: 'center',
+            },
+        }).setDepth(202);
+        const closeBtn = this.add.text(740, 124, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
+        closeBtn.on('pointerdown', () => this.closeUI());
+        elements.push(title, closeBtn);
+
+        const summary = addBoundedText(this, {
+            x: 290,
+            y: 180,
+            content: specializationDef
+                ? `当前专精：${specializationDef.label}`
+                : canAdvance
+                    ? '当前状态：可进行二次转职'
+                    : '当前状态：尚未解锁二次转职',
+            width: 444,
+            height: 22,
+            minFontSize: 12,
+            maxLines: 1,
+            style: {
+                fontSize: '15px',
+                color: specializationDef ? classDef.color : canAdvance ? '#2ecc71' : '#95a5a6',
+                fontStyle: 'bold',
+            },
+        }).setDepth(202);
+        elements.push(summary);
+
+        if (specializationDef) {
+            const passiveName = addBoundedText(this, {
+                x: 290,
+                y: 220,
+                content: `核心被动：${specializationDef.passiveName}`,
+                width: 444,
+                height: 22,
+                minFontSize: 12,
+                maxLines: 1,
+                style: {
+                    fontSize: '14px',
+                    color: '#f1c40f',
+                    fontStyle: 'bold',
+                },
+            }).setDepth(202);
+            const passiveDesc = addBoundedText(this, {
+                x: 290,
+                y: 252,
+                content: specializationDef.passiveDescription,
+                width: 444,
+                height: 42,
+                minFontSize: 11,
+                maxLines: 2,
+                lineSpacing: 6,
+                style: {
+                    fontSize: '13px',
+                    color: '#d6e6f5',
+                },
+            }).setDepth(202);
+            elements.push(passiveName, passiveDesc);
+
+            const bonusLines = [
+                specializationDef.bonuses.hp ? `生命 +${specializationDef.bonuses.hp}` : null,
+                specializationDef.bonuses.atk ? `攻击 +${specializationDef.bonuses.atk}` : null,
+                specializationDef.bonuses.def ? `防御 +${specializationDef.bonuses.def}` : null,
+                specializationDef.bonuses.attackSpeedPct ? `攻速 +${specializationDef.bonuses.attackSpeedPct}%` : null,
+                specializationDef.bonuses.critRate ? `暴击率 +${specializationDef.bonuses.critRate}%` : null,
+                specializationDef.bonuses.critDamage ? `暴击伤害 +${specializationDef.bonuses.critDamage}%` : null,
+                specializationDef.bonuses.moveSpeed ? `移速 +${specializationDef.bonuses.moveSpeed}` : null,
+            ].filter((line): line is string => line !== null);
+
+            const bonusTitle = this.add.text(290, 320, '当前生效收益', {
+                fontSize: '14px',
+                color: '#2ecc71',
+                fontStyle: 'bold',
+            }).setDepth(202);
+            const bonusText = addBoundedText(this, {
+                x: 290,
+                y: 350,
+                content: bonusLines.join('\n'),
+                width: 444,
+                height: 120,
+                minFontSize: 11,
+                maxLines: 6,
+                lineSpacing: 8,
+                style: {
+                    fontSize: '13px',
+                    color: '#2ecc71',
+                },
+            }).setDepth(202);
+            elements.push(bonusTitle, bonusText);
+        } else {
+            const requirementTitle = this.add.text(290, 220, '解锁条件', {
+                fontSize: '14px',
+                color: '#f1c40f',
+                fontStyle: 'bold',
+            }).setDepth(202);
+            const requirementText = addBoundedText(this, {
+                x: 290,
+                y: 252,
+                content: `达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL} 后，可在职业导师处执行二次转职并选择一条专精路线。`,
+                width: 444,
+                height: 44,
+                minFontSize: 11,
+                maxLines: 2,
+                lineSpacing: 6,
+                style: {
+                    fontSize: '13px',
+                    color: '#d6e6f5',
+                },
+            }).setDepth(202);
+            const progressText = addBoundedText(this, {
+                x: 290,
+                y: 320,
+                content: `当前等级：Lv.${this.character.level} / ${ADVANCEMENT_REQUIREMENT_LEVEL}`,
+                width: 444,
+                height: 22,
+                minFontSize: 12,
+                maxLines: 1,
+                style: {
+                    fontSize: '14px',
+                    color: canAdvance ? '#2ecc71' : '#95a5a6',
+                    fontStyle: 'bold',
+                },
+            }).setDepth(202);
+            const adviceText = addBoundedText(this, {
+                x: 290,
+                y: 360,
+                content: canAdvance ? '条件已满足，关闭该窗口后点击“职业导师”即可选择专精。' : '继续挑战地牢并提升等级，达到条件后将自动开放转职。',
+                width: 444,
+                height: 40,
+                minFontSize: 11,
+                maxLines: 2,
+                lineSpacing: 6,
+                style: {
+                    fontSize: '13px',
+                    color: canAdvance ? '#2ecc71' : '#bdc3c7',
+                },
+            }).setDepth(202);
+            elements.push(requirementTitle, requirementText, progressText, adviceText);
+        }
+
+        const actionLabel = specializationDef ? '关闭' : canAdvance ? '前往转职' : '返回';
+        const actionBtn = this.add.rectangle(512, 560, 180, 42, canAdvance && !specializationDef ? 0x6b3fa0 : 0x3c4350)
+            .setDepth(202)
+            .setStrokeStyle(2, canAdvance && !specializationDef ? 0xc39bff : 0x66707d)
+            .setInteractive({ useHandCursor: true });
+        const actionText = this.add.text(512, 560, actionLabel, {
+            fontSize: '16px',
+            color: '#ffffff',
+            fontStyle: 'bold',
+        }).setOrigin(0.5).setDepth(203);
+        actionBtn.on('pointerdown', () => {
+            if (canAdvance && !specializationDef) {
+                this.openSpecializationPanel();
+                return;
+            }
+            this.closeUI();
+        });
+        elements.push(actionBtn, actionText);
+
+        const panelRect: PanelRect = { x: 250, y: 110, width: 524, height: 500 };
+        this.createManagedPanel(elements, panelRect, panelBg);
+    }
+
+    private confirmSpecialization(specialization: import('../models').CharacterSpecialization) {
+        if (!chooseSpecialization(this.character, specialization)) {
+            this.log('转职失败：当前状态不满足条件');
+            return;
+        }
+        const specializationDef = getSpecializationDef(this.character.baseClass, specialization);
+        this.closeUI();
+        this.renderTownOverlay();
+        this.log(`完成二次转职：${specializationDef?.label ?? specialization}`);
+    }
+
     private resetGame() {
         if (this.autoSaveManager) this.autoSaveManager.stop();
 
-        this.character = createCharacter('冒险者');
+        this.character = createCharacter('冒险者', this.character.baseClass);
         this.inventory = createInventory();
         this.equipped = createEquippedItems();
         this.dungeon = createDungeonState();

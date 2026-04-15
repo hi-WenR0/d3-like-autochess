@@ -22,6 +22,8 @@ export interface CombatResult {
     extraAttacks: number;
     isEvaded: boolean;
     isCombo: boolean;
+    specializationProc: string | null;
+    specializationHeal: number;
 }
 
 /** 收集所有装备上的词条效果 */
@@ -82,9 +84,14 @@ export interface AffixEffects {
 }
 
 /** 计算单次攻击伤害（含穿透、狂战士） */
-export function calculateDamage(char: CharacterData, effects: AffixEffects, stats?: CharacterStats): { damage: number; isCrit: boolean } {
+export function calculateDamage(
+    char: CharacterData,
+    effects: AffixEffects,
+    stats?: CharacterStats,
+    modifiers?: { critRateBonus?: number; damageMultiplier?: number; critDamageBonus?: number },
+): { damage: number; isCrit: boolean } {
     const effectiveStats = stats ?? getEffectiveStats(char);
-    const isCrit = Math.random() * 100 < effectiveStats.critRate;
+    const isCrit = Math.random() * 100 < (effectiveStats.critRate + (modifiers?.critRateBonus ?? 0));
 
     let atk = effectiveStats.atk;
 
@@ -96,12 +103,12 @@ export function calculateDamage(char: CharacterData, effects: AffixEffects, stat
     let damage = atk;
 
     if (isCrit) {
-        damage = Math.floor(damage * (effectiveStats.critDamage / 100));
+        damage = Math.floor(damage * ((effectiveStats.critDamage + (modifiers?.critDamageBonus ?? 0)) / 100));
     }
 
     // 随机浮动 ±10%
     const variance = 0.9 + Math.random() * 0.2;
-    damage = Math.floor(damage * variance);
+    damage = Math.floor(damage * variance * (modifiers?.damageMultiplier ?? 1));
 
     return { damage: Math.max(1, damage), isCrit };
 }
@@ -130,18 +137,88 @@ export function calculateIncomingDamage(rawDamage: number, charDef: number, effe
 /** 执行一次角色攻击怪物（含全部词条效果） */
 export function playerAttackMonster(char: CharacterData, monster: Monster, effects: AffixEffects, stats?: CharacterStats): CombatResult {
     const effectiveStats = stats ?? getEffectiveStats(char);
+    const targetHpRatio = monster.stats.maxHp > 0 ? monster.stats.hp / monster.stats.maxHp : 1;
+    const selfHpRatio = effectiveStats.maxHp > 0 ? char.baseStats.hp / effectiveStats.maxHp : 1;
+    let critRateBonus = 0;
+    let critDamageBonus = 0;
+    let damageMultiplier = 1;
+    let extraComboChance = 0;
+    let skipRetaliation = false;
+    let killHealRatio = 0;
+    let hitHealRatio = 0;
+    let goldMultiplier = 1;
+    let specializationProc: string | null = null;
+
+    switch (char.specialization) {
+        case 'slayer':
+            if (targetHpRatio <= 0.35) {
+                damageMultiplier *= 1.35;
+                specializationProc = '斩杀';
+            }
+            break;
+        case 'warlord':
+            if (selfHpRatio >= 0.8) {
+                damageMultiplier *= 1.15;
+                specializationProc = '统御';
+            }
+            break;
+        case 'bloodguard':
+            if (selfHpRatio <= 0.5) {
+                damageMultiplier *= 1.15;
+                killHealRatio = 0.05;
+                specializationProc = '血怒';
+            }
+            break;
+        case 'sharpshooter':
+            if (targetHpRatio >= 0.9) {
+                critRateBonus += 20;
+                damageMultiplier *= 1.2;
+                specializationProc = '狙击';
+            }
+            break;
+        case 'trapper':
+            if (Math.random() < 0.25) {
+                skipRetaliation = true;
+                specializationProc = '牵制';
+            }
+            break;
+        case 'beastmaster':
+            extraComboChance += 20;
+            break;
+        case 'elementalist':
+            critDamageBonus += 25;
+            break;
+        case 'arcanist':
+            hitHealRatio = 0.03;
+            break;
+        case 'summoner':
+            killHealRatio = 0.04;
+            goldMultiplier = 1.2;
+            break;
+    }
 
     // 主攻击
-    const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats);
+    const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats, {
+        critRateBonus,
+        critDamageBonus,
+        damageMultiplier,
+    });
+    if (char.specialization === 'elementalist' && isCrit) {
+        specializationProc = '元素爆裂';
+    }
     const damageDealt = applyDamageToMonster(rawDamage, Math.floor(monster.stats.atk * 0.3), effects);
     const monsterKilled = monsterTakeDamage(monster, damageDealt);
 
     // 连击判定
     let extraAttacks = 0;
-    if (!monsterKilled && effects.comboChance > 0 && Math.random() * 100 < effects.comboChance) {
+    const comboChance = effects.comboChance + extraComboChance;
+    if (!monsterKilled && comboChance > 0 && Math.random() * 100 < comboChance) {
         extraAttacks = 1;
         const extraDamage = applyDamageToMonster(rawDamage, Math.floor(monster.stats.atk * 0.3), effects);
         monsterTakeDamage(monster, extraDamage);
+        if (char.specialization === 'beastmaster') {
+            specializationProc = '协猎';
+        }
     }
 
     // 吸血
@@ -151,6 +228,12 @@ export function playerAttackMonster(char: CharacterData, monster: Monster, effec
         char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + lifeStealHeal);
     }
 
+    let specializationHeal = 0;
+    if (hitHealRatio > 0) {
+        specializationHeal += Math.max(1, Math.floor(effectiveStats.maxHp * hitHealRatio));
+        char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + specializationHeal);
+    }
+
     let expGained = 0;
     let goldGained = 0;
 
@@ -158,7 +241,11 @@ export function playerAttackMonster(char: CharacterData, monster: Monster, effec
 
     if (monsterKilled) {
         expGained = monster.stats.exp;
-        goldGained = monster.stats.gold;
+        goldGained = Math.floor(monster.stats.gold * goldMultiplier);
+        if (killHealRatio > 0) {
+            specializationHeal += Math.max(1, Math.floor(effectiveStats.maxHp * killHealRatio));
+            char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + specializationHeal);
+        }
     }
 
     // 怪物反击（如果存活）
@@ -166,7 +253,7 @@ export function playerAttackMonster(char: CharacterData, monster: Monster, effec
     let playerDied = false;
     let isEvaded = false;
 
-    if (!monsterKilled) {
+    if (!monsterKilled && !skipRetaliation) {
         const rawMonsterDmg = getMonsterAttack(monster);
         const { damage: incomingDmg, evaded } = calculateIncomingDamage(rawMonsterDmg, effectiveStats.def, effects);
         damageReceived = incomingDmg;
@@ -190,5 +277,7 @@ export function playerAttackMonster(char: CharacterData, monster: Monster, effec
         extraAttacks,
         isEvaded,
         isCombo: extraAttacks > 0,
+        specializationProc,
+        specializationHeal,
     };
 }

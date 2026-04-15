@@ -2,7 +2,13 @@ import {
     type CharacterData,
     type CharacterStats,
     type AllocatedStats,
+    type CharacterBaseClass,
+    type CharacterSpecialization,
+    type CharacterSpecializationBonuses,
     STAT_PER_POINT,
+    BASE_CLASS_CONFIG,
+    ADVANCEMENT_REQUIREMENT_LEVEL,
+    getSpecializationDef,
     expForLevel,
 } from '../models';
 
@@ -17,27 +23,39 @@ export interface ExternalStatBonuses {
 }
 
 /** 创建初始角色 */
-export function createCharacter(name: string): CharacterData {
+export function createCharacter(name: string, baseClass: CharacterBaseClass = 'berserker'): CharacterData {
+    const classDef = BASE_CLASS_CONFIG[baseClass];
     return {
         id: generateId(),
         name,
+        baseClass,
+        specialization: null,
+        advancementState: 'base',
         level: 1,
         exp: 0,
         expToNextLevel: expForLevel(1),
         statPoints: 0,
         allocatedStats: { hp: 0, atk: 0, def: 0, attackSpeed: 0, critRate: 0, critDamage: 0, moveSpeed: 0 },
-        baseStats: {
-            hp: 200,
-            maxHp: 200,
-            atk: 15,
-            def: 5,
-            attackSpeed: 1.0,
-            critRate: 5,
-            critDamage: 150,
-            moveSpeed: 100,
-        },
+        baseStats: { ...classDef.startingStats },
         gold: 0,
         currentFloor: 1,
+    };
+}
+
+export function normalizeCharacterData(char: CharacterData): CharacterData {
+    const normalizedClass = char.baseClass in BASE_CLASS_CONFIG ? char.baseClass : 'berserker';
+    const specializationDef = getSpecializationDef(normalizedClass, char.specialization ?? null);
+    const advancementState =
+        specializationDef !== null
+            ? 'specialized'
+            : char.level >= ADVANCEMENT_REQUIREMENT_LEVEL
+                ? 'eligible'
+                : 'base';
+    return {
+        ...char,
+        baseClass: normalizedClass,
+        specialization: specializationDef?.id ?? null,
+        advancementState,
     };
 }
 
@@ -64,6 +82,7 @@ export function getEffectiveStats(char: CharacterData, bonuses?: ExternalStatBon
 export function addExperience(char: CharacterData, exp: number): boolean {
     char.exp += exp;
     let leveledUp = false;
+    const growth = BASE_CLASS_CONFIG[char.baseClass].growth;
 
     while (char.exp >= char.expToNextLevel) {
         char.exp -= char.expToNextLevel;
@@ -72,10 +91,14 @@ export function addExperience(char: CharacterData, exp: number): boolean {
         char.expToNextLevel = expForLevel(char.level);
 
         // 升级提升基础属性
-        char.baseStats.maxHp += 15;
+        char.baseStats.maxHp += growth.maxHp;
         char.baseStats.hp = char.baseStats.maxHp;
-        char.baseStats.atk += 2;
-        char.baseStats.def += 1;
+        char.baseStats.atk += growth.atk;
+        char.baseStats.def += growth.def;
+
+        if (char.specialization === null && char.level >= ADVANCEMENT_REQUIREMENT_LEVEL) {
+            char.advancementState = 'eligible';
+        }
 
         leveledUp = true;
     }
@@ -116,6 +139,24 @@ export function heal(char: CharacterData, amount: number, bonuses?: ExternalStat
 /** 角色是否存活 */
 export function isAlive(char: CharacterData): boolean {
     return char.baseStats.hp > 0;
+}
+
+export function canAdvanceSpecialization(char: CharacterData): boolean {
+    return char.specialization === null && char.level >= ADVANCEMENT_REQUIREMENT_LEVEL;
+}
+
+export function chooseSpecialization(char: CharacterData, specialization: CharacterSpecialization): boolean {
+    const specializationDef = getSpecializationDef(char.baseClass, specialization);
+    if (!specializationDef || !canAdvanceSpecialization(char)) {
+        return false;
+    }
+    char.specialization = specialization;
+    char.advancementState = 'specialized';
+    return true;
+}
+
+export function getSpecializationBonuses(char: CharacterData): CharacterSpecializationBonuses {
+    return getSpecializationDef(char.baseClass, char.specialization)?.bonuses ?? {};
 }
 
 let _idCounter = 0;

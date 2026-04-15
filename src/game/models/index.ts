@@ -1,5 +1,22 @@
-export type { CharacterStats, CharacterData, AllocatedStats } from './character';
-export { STAT_PER_POINT, expForLevel } from './character';
+export type {
+    CharacterStats,
+    CharacterData,
+    AllocatedStats,
+    CharacterBaseClass,
+    CharacterSpecialization,
+    CharacterAdvancementState,
+    CharacterBaseClassDef,
+    CharacterSpecializationDef,
+    CharacterSpecializationBonuses,
+} from './character';
+export {
+    STAT_PER_POINT,
+    expForLevel,
+    BASE_CLASS_CONFIG,
+    ADVANCEMENT_REQUIREMENT_LEVEL,
+    getBaseClassDef,
+    getSpecializationDef,
+} from './character';
 
 export type { EquipSlot, WearableSlot, WeaponType, Rarity, RarityDef, EquipBaseStats, EquipBaseStatsRange, Equipment } from './equipment';
 export { EQUIP_SLOTS, SLOT_TO_WEARABLE, RARITY_CONFIG, sellPrice } from './equipment';

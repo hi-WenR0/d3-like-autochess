@@ -3,6 +3,7 @@ import type { InventoryData } from '../models/inventory';
 import type { DungeonState } from '../models/dungeon';
 import type { Consumable } from '../models/consumable';
 import type { EquippedItems } from './equip-system';
+import { normalizeCharacterData } from './character-system';
 
 const LEGACY_SAVE_KEY = 'darklike_save';
 const SAVE_KEY_PREFIX = 'darklike_save_slot_';
@@ -21,7 +22,7 @@ export interface SaveData {
     totalPlayTime: number;     // 总游戏时长（秒）
 }
 
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 export interface SaveSlotSummary {
     slotId: number;
@@ -73,11 +74,15 @@ export function loadGame(slotId = currentSaveSlot): SaveData | null {
             json = localStorage.getItem(LEGACY_SAVE_KEY);
         }
         if (!json) return null;
-        const data = JSON.parse(json) as SaveData;
-        if (data.version !== CURRENT_VERSION) {
+        const data = JSON.parse(json) as SaveData & { version?: number };
+        if ((data.version ?? 1) > CURRENT_VERSION) {
             console.warn(`存档版本不匹配: ${data.version} vs ${CURRENT_VERSION}`);
             return null;
         }
+        data.version = CURRENT_VERSION;
+        data.character = normalizeCharacterData(data.character);
+        data.consumables = data.consumables ?? [];
+        data.totalPlayTime = data.totalPlayTime ?? 0;
         return data;
     } catch {
         console.warn('存档读取失败');

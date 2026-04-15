@@ -1,4 +1,6 @@
 import { Scene, GameObjects } from 'phaser';
+import { BASE_CLASS_CONFIG, type CharacterBaseClass } from '../models';
+import { addBoundedText } from '../ui/text-layout';
 import {
     deleteSave,
     listSaveSlots,
@@ -6,7 +8,7 @@ import {
     type SaveSlotSummary,
 } from '../systems/save-system';
 
-type MenuView = 'root' | 'newGame' | 'loadGame' | 'intro';
+type MenuView = 'root' | 'newGame' | 'newGameClassSelect' | 'loadGame' | 'intro';
 
 export class MainMenu extends Scene {
     background!: GameObjects.Image;
@@ -18,6 +20,7 @@ export class MainMenu extends Scene {
         newGame: 0,
         loadGame: 0,
     };
+    pendingNewGameSlot: number | null = null;
 
     constructor() {
         super('MainMenu');
@@ -57,6 +60,9 @@ export class MainMenu extends Scene {
                 break;
             case 'loadGame':
                 this.renderLoadGameView();
+                break;
+            case 'newGameClassSelect':
+                this.renderNewGameClassSelectView();
                 break;
             case 'intro':
                 this.renderIntroView();
@@ -183,10 +189,21 @@ export class MainMenu extends Scene {
             const summary = slot.hasSave
                 ? `槽位 ${String(slot.slotId).padStart(2, '0')}  |  ${slot.name ?? '未知角色'}  |  Lv.${slot.level}  |  ${slot.floor}F  |  ${this.formatTimestamp(slot.timestamp)}`
                 : `槽位 ${String(slot.slotId).padStart(2, '0')}  |  空存档`;
-            const summaryText = this.add.text(x + 16, y, summary, {
-                fontSize: '13px',
-                color: slot.hasSave ? '#d6e6f5' : '#7f8c8d',
-            }).setOrigin(0, 0.5);
+            const summaryText = addBoundedText(this, {
+                x: x + 16,
+                y,
+                content: summary,
+                width: rowWidth - (options.allowDelete ? 220 : 160),
+                height: 22,
+                minFontSize: 11,
+                maxLines: 1,
+                originX: 0,
+                originY: 0.5,
+                style: {
+                    fontSize: '13px',
+                    color: slot.hasSave ? '#d6e6f5' : '#7f8c8d',
+                },
+            });
             elements.push(summaryText);
 
             const canPrimary = options.primaryLabel === '新建' ? true : slot.hasSave;
@@ -241,10 +258,116 @@ export class MainMenu extends Scene {
             primaryLabel: '新建',
             allowDelete: false,
             onPrimary: (slotId) => {
-                setCurrentSaveSlot(slotId);
-                this.scene.start('Game', { newGame: true });
+                this.pendingNewGameSlot = slotId;
+                this.switchView('newGameClassSelect');
             },
         });
+    }
+
+    private renderNewGameClassSelectView() {
+        const elements: GameObjects.GameObject[] = [];
+        const panel = this.add.rectangle(512, 430, 860, 620, 0x111f2f, 0.92).setStrokeStyle(2, 0x4a6a8a);
+        elements.push(panel);
+
+        const title = this.add.text(512, 100, '选择基础职业', {
+            fontSize: '30px',
+            color: '#ffffff',
+            fontStyle: 'bold',
+        }).setOrigin(0.5);
+        elements.push(title);
+
+        const subtitle = this.add.text(512, 138, `存档槽 ${String(this.pendingNewGameSlot ?? 1).padStart(2, '0')}`, {
+            fontSize: '16px',
+            color: '#95a5a6',
+        }).setOrigin(0.5);
+        elements.push(subtitle);
+
+        elements.push(this.createBackButton(() => this.switchView('newGame')));
+
+        const classIds: CharacterBaseClass[] = ['berserker', 'ranger', 'mage'];
+        const positions = [220, 512, 804];
+
+        classIds.forEach((classId, index) => {
+            const classDef = BASE_CLASS_CONFIG[classId];
+            const x = positions[index];
+            const y = 390;
+
+            const card = this.add.rectangle(x, y, 230, 360, 0x17283a, 0.95).setStrokeStyle(2, parseInt(classDef.color.replace('#', ''), 16));
+            const name = this.add.text(x, y - 140, classDef.label, {
+                fontSize: '24px',
+                color: classDef.color,
+                fontStyle: 'bold',
+            }).setOrigin(0.5);
+            const desc = addBoundedText(this, {
+                x: x - 92,
+                y: y - 96,
+                content: classDef.description,
+                width: 184,
+                height: 76,
+                minFontSize: 11,
+                lineSpacing: 6,
+                maxLines: 4,
+                style: {
+                    fontSize: '14px',
+                    color: '#d6e6f5',
+                },
+            });
+            const stats = addBoundedText(this, {
+                x: x - 92,
+                y: y - 16,
+                content: [
+                    `HP ${classDef.startingStats.maxHp}`,
+                    `ATK ${classDef.startingStats.atk}`,
+                    `DEF ${classDef.startingStats.def}`,
+                    `攻速 ${classDef.startingStats.attackSpeed.toFixed(2)}`,
+                    `暴击 ${classDef.startingStats.critRate}%`,
+                    `移速 ${classDef.startingStats.moveSpeed}`,
+                ],
+                width: 184,
+                height: 96,
+                minFontSize: 11,
+                lineSpacing: 8,
+                maxLines: 6,
+                style: {
+                    fontSize: '13px',
+                    color: '#bdc3c7',
+                },
+            });
+            const branchTitle = this.add.text(x, y + 100, '后续专精', {
+                fontSize: '14px',
+                color: '#f1c40f',
+            }).setOrigin(0.5);
+            const branchList = addBoundedText(this, {
+                x,
+                y: y + 136,
+                content: classDef.specializations.map(spec => spec.label).join(' / '),
+                width: 180,
+                height: 46,
+                minFontSize: 10,
+                maxLines: 2,
+                originX: 0.5,
+                style: {
+                    fontSize: '12px',
+                    color: '#e6cc80',
+                    align: 'center',
+                },
+            });
+            const chooseBtn = this.createActionButton(x, y + 205, '选择该职业', () => this.startNewGameWithClass(classId), {
+                width: 170,
+                height: 42,
+                color: 0x20435f,
+                border: parseInt(classDef.color.replace('#', ''), 16),
+            });
+
+            elements.push(card, name, desc, stats, branchTitle, branchList, chooseBtn);
+        });
+
+        this.viewContainer = this.add.container(0, 0, elements);
+    }
+
+    private startNewGameWithClass(baseClass: CharacterBaseClass) {
+        setCurrentSaveSlot(this.pendingNewGameSlot ?? 1);
+        this.scene.start('Game', { newGame: true, baseClass });
     }
 
     private renderLoadGameView() {
