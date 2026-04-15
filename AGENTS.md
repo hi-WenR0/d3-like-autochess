@@ -195,6 +195,32 @@ The project uses `FEATURES.md` to track feature requirements, development progre
 - When encountering blockers or changing priorities
 - When deprecating or postponing a feature
 
+## `.agents/docs` Development Docs Workflow
+
+The project now uses `.agents/docs` for feature design and implementation docs, organized by category.
+
+### Required Rule (Before Coding)
+
+When a new feature point is requested, agents must:
+
+1. Create a new development doc under `.agents/docs/<category>/` first
+2. Use file naming format: `YYYY-MM-DD-feature-short-name.md`
+3. Fill the template from `.agents/docs/00-templates/feature-dev-doc-template.md`
+4. Start coding only after the development doc is created and scoped
+5. Keep `FEATURES.md` and the development doc status aligned during implementation
+
+### Categories
+
+- `01-gameplay-loop`: Core loop and turn/state flow
+- `02-combat`: Combat, targeting, damage, skills
+- `03-economy`: Gold, shop, reroll, income systems
+- `04-progression`: Leveling, traits/synergy, unlock progression
+- `05-ui-ux`: UI screens, HUD, interaction and feedback
+- `06-content`: Units/items/encounters/config content updates
+- `07-engine-tech`: Engine architecture, performance, tooling
+- `08-bugfix`: Bug analysis and fix records
+- `99-archive`: Deprecated or historical proposals
+
 ## References
 
 - [Phaser 4 Documentation](https://docs.phaser.io/)
