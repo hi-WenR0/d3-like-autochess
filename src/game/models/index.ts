@@ -11,6 +11,8 @@ export type {
     CharacterBaseClassDef,
     CharacterSpecializationDef,
     CharacterSpecializationBonuses,
+    AdvancementRequirement,
+    AdvancementContext,
 } from './character';
 export {
     STAT_PER_POINT,

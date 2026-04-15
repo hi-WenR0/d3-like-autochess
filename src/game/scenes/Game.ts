@@ -34,7 +34,10 @@ import {
     getEffectiveStats,
     addExperience,
     canAdvanceSpecialization,
+    canAdvanceAnySpecialization,
+    canUnlockSpecialization,
     chooseSpecialization,
+    getSpecializationRequirementProgress,
     getSpecializationBonuses,
     heal,
     isAlive,
@@ -284,6 +287,13 @@ export class Game extends Scene {
             monsterCodex: this.monsterCodex,
             consumables: this.consumables,
             totalPlayTime: 0,
+        };
+    }
+
+    private getAdvancementContext() {
+        return {
+            currentFloor: this.dungeon.currentFloor,
+            monsterCodex: this.monsterCodex,
         };
     }
 
@@ -1215,7 +1225,7 @@ export class Game extends Scene {
         this.hideTownOverlay();
 
         const elements: Phaser.GameObjects.GameObject[] = [];
-        const canAdvance = canAdvanceSpecialization(this.character);
+        const canAdvance = canAdvanceAnySpecialization(this.character, this.getAdvancementContext());
         const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
         const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
 
@@ -2550,7 +2560,11 @@ export class Game extends Scene {
             return;
         }
         if (!canAdvanceSpecialization(this.character)) {
-            this.log(`当前未满足转职条件，需达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL}`);
+            this.log(`当前未满足转职前置等级，需达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL}`);
+            return;
+        }
+        if (!canAdvanceAnySpecialization(this.character, this.getAdvancementContext())) {
+            this.log('当前尚未满足任一专精的转职任务条件');
             return;
         }
 
@@ -2604,6 +2618,8 @@ export class Game extends Scene {
         classDef.specializations.forEach((spec, index) => {
             const x = 210 + index * 215;
             const y = 170;
+            const requirements = getSpecializationRequirementProgress(this.character, spec.id, this.getAdvancementContext());
+            const unlocked = canUnlockSpecialization(this.character, spec.id, this.getAdvancementContext());
             const card = this.add.rectangle(x, y, 190, 420, 0x17283a, 0.96).setOrigin(0).setDepth(202).setStrokeStyle(2, parseInt(classDef.color.replace('#', ''), 16));
             const name = addBoundedText(this, {
                 x: x + 95,
@@ -2691,25 +2707,41 @@ export class Game extends Scene {
                 y: y + 254,
                 content: bonusLines.join('\n'),
                 width: 162,
-                height: 92,
+                height: 70,
                 minFontSize: 10,
                 lineSpacing: 6,
-                maxLines: 5,
+                maxLines: 4,
                 style: {
                     fontSize: '12px',
                     color: '#2ecc71',
                 },
             }).setDepth(203);
-            const chooseBtn = this.add.rectangle(x + 95, y + 376, 146, 40, 0x20435f).setDepth(203).setStrokeStyle(2, parseInt(classDef.color.replace('#', ''), 16)).setInteractive({ useHandCursor: true });
-            const chooseText = this.add.text(x + 95, y + 376, '确认转职', {
+            const requirementText = addBoundedText(this, {
+                x: x + 14,
+                y: y + 332,
+                content: requirements.map((item) => `${item.met ? '✓' : '•'} ${item.label} (${Math.min(item.current, item.target)}/${item.target})`).join('\n'),
+                width: 162,
+                height: 42,
+                minFontSize: 9,
+                lineSpacing: 4,
+                maxLines: 3,
+                style: {
+                    fontSize: '10px',
+                    color: unlocked ? '#d5f5e3' : '#f5cba7',
+                },
+            }).setDepth(203);
+            const chooseBtn = this.add.rectangle(x + 95, y + 386, 146, 40, unlocked ? 0x20435f : 0x3c4350).setDepth(203).setStrokeStyle(2, unlocked ? parseInt(classDef.color.replace('#', ''), 16) : 0x66707d).setInteractive({ useHandCursor: unlocked });
+            const chooseText = this.add.text(x + 95, y + 386, unlocked ? '确认转职' : '条件未达成', {
                 fontSize: '16px',
-                color: '#ffffff',
+                color: unlocked ? '#ffffff' : '#bdc3c7',
                 fontStyle: 'bold',
             }).setOrigin(0.5).setDepth(204);
-            chooseBtn.on('pointerover', () => chooseBtn.setFillStyle(0x2a587c));
-            chooseBtn.on('pointerout', () => chooseBtn.setFillStyle(0x20435f));
-            chooseBtn.on('pointerdown', () => this.confirmSpecialization(spec.id));
-            elements.push(card, name, desc, passiveName, passiveDesc, bonusTitle, bonusText, chooseBtn, chooseText);
+            if (unlocked) {
+                chooseBtn.on('pointerover', () => chooseBtn.setFillStyle(0x2a587c));
+                chooseBtn.on('pointerout', () => chooseBtn.setFillStyle(0x20435f));
+                chooseBtn.on('pointerdown', () => this.confirmSpecialization(spec.id));
+            }
+            elements.push(card, name, desc, passiveName, passiveDesc, bonusTitle, bonusText, requirementText, chooseBtn, chooseText);
         });
 
         const panelRect: PanelRect = { x: 180, y: 70, width: 664, height: 610 };
@@ -2728,7 +2760,7 @@ export class Game extends Scene {
         const elements: Phaser.GameObjects.GameObject[] = [];
         const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
         const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
-        const canAdvance = canAdvanceSpecialization(this.character);
+        const canAdvance = canAdvanceAnySpecialization(this.character, this.getAdvancementContext());
 
         const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.78).setOrigin(0).setDepth(200).setInteractive();
         elements.push(bg);
@@ -2763,7 +2795,7 @@ export class Game extends Scene {
                 ? `当前专精：${specializationDef.label}`
                 : canAdvance
                     ? '当前状态：可进行二次转职'
-                    : '当前状态：尚未解锁二次转职',
+                    : '当前状态：转职任务未完成',
             width: 444,
             height: 22,
             minFontSize: 12,
@@ -2846,7 +2878,7 @@ export class Game extends Scene {
             const requirementText = addBoundedText(this, {
                 x: 290,
                 y: 252,
-                content: `达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL} 后，可在职业导师处执行二次转职并选择一条专精路线。`,
+                content: `达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL} 后，还需满足各专精对应的楼层与击杀条件，才能完成二次转职。`,
                 width: 444,
                 height: 44,
                 minFontSize: 11,
@@ -2860,7 +2892,7 @@ export class Game extends Scene {
             const progressText = addBoundedText(this, {
                 x: 290,
                 y: 320,
-                content: `当前等级：Lv.${this.character.level} / ${ADVANCEMENT_REQUIREMENT_LEVEL}`,
+                content: `当前等级：Lv.${this.character.level} / ${ADVANCEMENT_REQUIREMENT_LEVEL}  ·  当前楼层：${this.dungeon.currentFloor}`,
                 width: 444,
                 height: 22,
                 minFontSize: 12,
@@ -2874,7 +2906,7 @@ export class Game extends Scene {
             const adviceText = addBoundedText(this, {
                 x: 290,
                 y: 360,
-                content: canAdvance ? '条件已满足，关闭该窗口后点击“职业导师”即可选择专精。' : '继续挑战地牢并提升等级，达到条件后将自动开放转职。',
+                content: canAdvance ? '已有至少一条专精路线满足条件，关闭该窗口后点击“职业导师”即可选择专精。' : '继续挑战地牢、提升等级并完成目标怪物击杀，满足条件后将自动开放转职。',
                 width: 444,
                 height: 40,
                 minFontSize: 11,
@@ -2912,7 +2944,7 @@ export class Game extends Scene {
     }
 
     private confirmSpecialization(specialization: import('../models').CharacterSpecialization) {
-        if (!chooseSpecialization(this.character, specialization)) {
+        if (!chooseSpecialization(this.character, specialization, this.getAdvancementContext())) {
             this.log('转职失败：当前状态不满足条件');
             return;
         }

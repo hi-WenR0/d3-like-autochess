@@ -1,4 +1,5 @@
 import type { CombatStyle } from './combat';
+import type { MonsterCodexData } from './monster';
 
 /** 角色基础属性 */
 export interface CharacterStats {
@@ -60,7 +61,20 @@ export interface CharacterSpecializationDef {
     description: string;
     passiveName: string;
     passiveDescription: string;
+    requirements: AdvancementRequirement[];
     bonuses: CharacterSpecializationBonuses;
+}
+
+export interface AdvancementRequirement {
+    type: 'level' | 'floor' | 'kill';
+    value: number;
+    targetId?: string;
+    label: string;
+}
+
+export interface AdvancementContext {
+    currentFloor: number;
+    monsterCodex: MonsterCodexData;
 }
 
 /** 角色完整数据 */
@@ -134,6 +148,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏爆发和斩杀号角。',
                 passiveName: '嗜血追击',
                 passiveDescription: '提升攻击与暴击伤害，强化斩杀能力。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 4, label: '通关第 4 层' },
+                    { type: 'kill', value: 2, targetId: 'skeleton-captain', label: '击败 2 名骷髅队长' },
+                ],
                 bonuses: { atk: 10, critDamage: 25 },
             },
             {
@@ -142,6 +161,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏团队增幅和压场。',
                 passiveName: '战意统御',
                 passiveDescription: '提升防御、生命与攻击，构筑更稳的压场输出。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 5, label: '通关第 5 层' },
+                    { type: 'kill', value: 2, targetId: 'corrosive-beast', label: '击败 2 只腐蚀巨兽' },
+                ],
                 bonuses: { hp: 40, atk: 6, def: 4 },
             },
             {
@@ -150,6 +174,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏续航和反打。',
                 passiveName: '血怒壁垒',
                 passiveDescription: '提升生命、防御与少量攻速，强化站场能力。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 5, label: '通关第 5 层' },
+                    { type: 'kill', value: 6, targetId: 'zombie', label: '击败 6 只僵尸' },
+                ],
                 bonuses: { hp: 80, def: 6, attackSpeedPct: 8 },
             },
         ],
@@ -182,6 +211,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏远程单点与爆头。',
                 passiveName: '致命瞄准',
                 passiveDescription: '提升暴击率、暴击伤害与攻击，偏单体爆发。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 4, label: '通关第 4 层' },
+                    { type: 'kill', value: 2, targetId: 'shadow-hunter', label: '击败 2 名暗影猎手' },
+                ],
                 bonuses: { atk: 8, critRate: 6, critDamage: 20 },
             },
             {
@@ -190,6 +224,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏控制和区域压制。',
                 passiveName: '战场布控',
                 passiveDescription: '提升攻速、移速与少量防御，偏节奏和拉扯。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 5, label: '通关第 5 层' },
+                    { type: 'kill', value: 5, targetId: 'cave-spider', label: '击败 5 只洞穴蜘蛛' },
+                ],
                 bonuses: { attackSpeedPct: 14, moveSpeed: 12, def: 3 },
             },
             {
@@ -198,6 +237,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏召唤协同与持续输出。',
                 passiveName: '狩猎本能',
                 passiveDescription: '提升生命、攻击与移速，强化持续追猎。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 5, label: '通关第 5 层' },
+                    { type: 'kill', value: 5, targetId: 'corrupted-worm', label: '击败 5 只腐化蠕虫' },
+                ],
                 bonuses: { hp: 50, atk: 7, moveSpeed: 10 },
             },
         ],
@@ -230,6 +274,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏元素爆发与范围伤害。',
                 passiveName: '元素共鸣',
                 passiveDescription: '提升攻击、暴击伤害与少量攻速，偏爆发输出。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 6, label: '通关第 6 层' },
+                    { type: 'kill', value: 1, targetId: 'lava-giant', label: '击败 1 个熔岩巨人' },
+                ],
                 bonuses: { atk: 12, critDamage: 18, attackSpeedPct: 6 },
             },
             {
@@ -238,6 +287,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏资源循环与法术强化。',
                 passiveName: '奥术迭代',
                 passiveDescription: '提升攻击、暴击率与移速，偏循环与手感。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 5, label: '通关第 5 层' },
+                    { type: 'kill', value: 2, targetId: 'necromancer', label: '击败 2 名死灵法师' },
+                ],
                 bonuses: { atk: 8, critRate: 5, moveSpeed: 8 },
             },
             {
@@ -246,6 +300,11 @@ export const BASE_CLASS_CONFIG: Readonly<Record<CharacterBaseClass, CharacterBas
                 description: '偏召唤体与战场控制。',
                 passiveName: '先知护持',
                 passiveDescription: '提升生命、防御与暴击伤害，偏稳健成长。',
+                requirements: [
+                    { type: 'level', value: 10, label: '达到 Lv.10' },
+                    { type: 'floor', value: 6, label: '通关第 6 层' },
+                    { type: 'kill', value: 1, targetId: 'frost-witch', label: '击败 1 名冰霜女巫' },
+                ],
                 bonuses: { hp: 70, def: 5, critDamage: 15 },
             },
         ],

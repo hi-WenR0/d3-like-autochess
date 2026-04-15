@@ -5,6 +5,8 @@ import {
     type CharacterBaseClass,
     type CharacterSpecialization,
     type CharacterSpecializationBonuses,
+    type AdvancementContext,
+    type AdvancementRequirement,
     STAT_PER_POINT,
     BASE_CLASS_CONFIG,
     ADVANCEMENT_REQUIREMENT_LEVEL,
@@ -147,9 +149,52 @@ export function canAdvanceSpecialization(char: CharacterData): boolean {
     return char.specialization === null && char.level >= ADVANCEMENT_REQUIREMENT_LEVEL;
 }
 
-export function chooseSpecialization(char: CharacterData, specialization: CharacterSpecialization): boolean {
+export interface RequirementProgress {
+    label: string;
+    current: number;
+    target: number;
+    met: boolean;
+}
+
+export function getSpecializationRequirementProgress(
+    char: CharacterData,
+    specialization: CharacterSpecialization,
+    context: AdvancementContext,
+): RequirementProgress[] {
     const specializationDef = getSpecializationDef(char.baseClass, specialization);
-    if (!specializationDef || !canAdvanceSpecialization(char)) {
+    if (!specializationDef) return [];
+
+    return specializationDef.requirements.map((requirement) => buildRequirementProgress(char, requirement, context));
+}
+
+export function canUnlockSpecialization(
+    char: CharacterData,
+    specialization: CharacterSpecialization,
+    context: AdvancementContext,
+): boolean {
+    if (char.specialization !== null) {
+        return false;
+    }
+
+    const progress = getSpecializationRequirementProgress(char, specialization, context);
+    return progress.length > 0 && progress.every((item) => item.met);
+}
+
+export function canAdvanceAnySpecialization(char: CharacterData, context: AdvancementContext): boolean {
+    if (char.specialization !== null) {
+        return false;
+    }
+
+    return BASE_CLASS_CONFIG[char.baseClass].specializations.some((spec) => canUnlockSpecialization(char, spec.id, context));
+}
+
+export function chooseSpecialization(
+    char: CharacterData,
+    specialization: CharacterSpecialization,
+    context: AdvancementContext,
+): boolean {
+    const specializationDef = getSpecializationDef(char.baseClass, specialization);
+    if (!specializationDef || !canUnlockSpecialization(char, specialization, context)) {
         return false;
     }
     char.specialization = specialization;
@@ -164,4 +209,21 @@ export function getSpecializationBonuses(char: CharacterData): CharacterSpeciali
 let _idCounter = 0;
 function generateId(): string {
     return `char_${Date.now()}_${++_idCounter}`;
+}
+
+function buildRequirementProgress(
+    char: CharacterData,
+    requirement: AdvancementRequirement,
+    context: AdvancementContext,
+): RequirementProgress {
+    switch (requirement.type) {
+        case 'level':
+            return { label: requirement.label, current: char.level, target: requirement.value, met: char.level >= requirement.value };
+        case 'floor':
+            return { label: requirement.label, current: context.currentFloor, target: requirement.value, met: context.currentFloor >= requirement.value };
+        case 'kill': {
+            const currentKills = requirement.targetId ? context.monsterCodex[requirement.targetId]?.killCount ?? 0 : 0;
+            return { label: requirement.label, current: currentKills, target: requirement.value, met: currentKills >= requirement.value };
+        }
+    }
 }
