@@ -210,6 +210,7 @@ export class Game extends Scene {
     townOverlay: Phaser.GameObjects.Container | null = null;
     autoEnterNextFloor = false;
     floorClearCountdownTimer: Phaser.Time.TimerEvent | null = null;
+    lastAutoSavedCompletedFloor = 0;
 
     // 地牢装饰
     floorTiles: Phaser.GameObjects.Rectangle[] = [];
@@ -255,6 +256,7 @@ export class Game extends Scene {
         }
 
         this.playerMovementStrategy = getCombatStyleProfile(this.character.combatStyle).defaultMovementStrategy;
+        this.lastAutoSavedCompletedFloor = canProceedToNextFloor(this.dungeon) ? this.dungeon.currentFloor : 0;
 
         this.renderDungeon();
         this.renderPlayer();
@@ -481,6 +483,7 @@ export class Game extends Scene {
         }
 
         if (canProceedToNextFloor(this.dungeon)) {
+            this.autoSaveCompletedFloor();
             this.enterTown();
             this.showFloorClearPanel();
             return;
@@ -2389,6 +2392,25 @@ export class Game extends Scene {
             this.log('存档成功！');
         } else {
             this.log('存档失败');
+        }
+    }
+
+    private autoSaveCompletedFloor() {
+        if (!canProceedToNextFloor(this.dungeon)) {
+            return;
+        }
+
+        const completedFloor = this.dungeon.currentFloor;
+        if (this.lastAutoSavedCompletedFloor >= completedFloor) {
+            return;
+        }
+
+        const data = this.getCurrentSaveData();
+        if (saveGame(data)) {
+            this.lastAutoSavedCompletedFloor = completedFloor;
+            this.log(`第 ${completedFloor} 层已自动保存`);
+        } else {
+            this.log(`第 ${completedFloor} 层自动保存失败`);
         }
     }
 
