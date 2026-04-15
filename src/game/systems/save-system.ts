@@ -2,6 +2,7 @@ import type { CharacterData } from '../models/character';
 import type { InventoryData } from '../models/inventory';
 import type { DungeonState } from '../models/dungeon';
 import type { Consumable } from '../models/consumable';
+import type { MonsterCodexData } from '../models/monster';
 import type { EquippedItems } from './equip-system';
 import { normalizeCharacterData } from './character-system';
 import { getAllowedClassesForEquipment } from '../models';
@@ -19,6 +20,7 @@ export interface SaveData {
     inventory: InventoryData;
     equipped: EquippedItems;
     dungeon: DungeonState;
+    monsterCodex: MonsterCodexData;
     consumables: Consumable[];
     totalPlayTime: number;     // 总游戏时长（秒）
 }
@@ -89,6 +91,7 @@ export function loadGame(slotId = currentSaveSlot): SaveData | null {
         data.inventory.items.forEach((item) => {
             item.item.allowedClasses = getAllowedClassesForEquipment(item.item);
         });
+        data.monsterCodex = data.monsterCodex ?? {};
         data.consumables = data.consumables ?? [];
         data.totalPlayTime = data.totalPlayTime ?? 0;
         return data;

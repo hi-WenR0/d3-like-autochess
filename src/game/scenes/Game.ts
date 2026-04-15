@@ -3,6 +3,7 @@ import {
     type CharacterData,
     type CharacterBaseClass,
     type Monster,
+    type MonsterCodexData,
     type DungeonState,
     type Equipment,
     type ExploreState,
@@ -167,6 +168,7 @@ export class Game extends Scene {
     inventory!: InventoryData;
     equipped!: EquippedItems;
     dungeon!: DungeonState;
+    monsterCodex: MonsterCodexData = {};
     affixEffects!: AffixEffects;
     consumables: Consumable[] = [];
     activeBuffs: ActiveBuff[] = [];
@@ -236,6 +238,7 @@ export class Game extends Scene {
             this.equipped = saved.equipped;
             this.normalizeEquippedClassRestrictions();
             this.dungeon = saved.dungeon;
+            this.monsterCodex = saved.monsterCodex ?? {};
             this.consumables = saved.consumables ?? [];
             this.activeBuffs = [];
             this.affixEffects = collectAffixEffects(this.equipped);
@@ -252,6 +255,7 @@ export class Game extends Scene {
             this.inventory = createInventory();
             this.equipped = createEquippedItems();
             this.dungeon = createDungeonState();
+            this.monsterCodex = {};
             this.affixEffects = collectAffixEffects(this.equipped);
         }
 
@@ -277,6 +281,7 @@ export class Game extends Scene {
             inventory: this.inventory,
             equipped: this.equipped,
             dungeon: this.dungeon,
+            monsterCodex: this.monsterCodex,
             consumables: this.consumables,
             totalPlayTime: 0,
         };
@@ -408,12 +413,7 @@ export class Game extends Scene {
             const y = PhaserMath.Between(80, DUNGEON_HEIGHT - 80);
 
             if (bossFloor && i === count - 1) {
-                const boss = spawnMonster(this.dungeon.currentFloor, x, y);
-                boss.type = 'boss';
-                boss.name = boss.name.replace(/[★]*$/, '★★★');
-                boss.stats.maxHp *= 5;
-                boss.stats.hp = boss.stats.maxHp;
-                boss.stats.atk = Math.floor(boss.stats.atk * 2);
+                const boss = spawnMonster(this.dungeon.currentFloor, x, y, 'boss');
                 this.renderMonster(boss);
             } else {
                 const monster = spawnMonster(this.dungeon.currentFloor, x, y);
@@ -610,6 +610,7 @@ export class Game extends Scene {
     private onMonsterKilled(monster: Monster, result: CombatResult) {
         const leveledUp = addExperience(this.character, result.expGained);
         this.character.gold += result.goldGained;
+        this.recordMonsterCodexKill(monster);
         onMonsterKilled(this.dungeon);
         this.dungeonRunSummary.monsterKills += 1;
         this.dungeonRunSummary.gainedExp += result.expGained;
@@ -829,6 +830,19 @@ export class Game extends Scene {
 
     private getCombatStyleLabel(style: CombatStyle): string {
         return getCombatStyleProfile(style).label;
+    }
+
+    private recordMonsterCodexKill(monster: Monster) {
+        const existing = this.monsterCodex[monster.catalogId];
+        this.monsterCodex[monster.catalogId] = {
+            id: monster.catalogId,
+            name: monster.name.replace(/[★]+$/, ''),
+            description: monster.description,
+            type: monster.type,
+            combatStyle: monster.combatStyle,
+            killCount: (existing?.killCount ?? 0) + 1,
+            unlocked: true,
+        };
     }
 
     private getAlertedMonsters(): Monster[] {
@@ -1340,6 +1354,17 @@ export class Game extends Scene {
         enterBtnBg.on('pointerdown', () => this.enterDungeon());
         elements.push(enterBtnBg, enterBtnText);
 
+        const codexBtnBg = this.add.rectangle(512, 452, 180, 34, 0x25435c).setStrokeStyle(2, 0x5dade2).setInteractive({ useHandCursor: true });
+        const codexBtnText = this.add.text(512, 452, '怪物图鉴', {
+            fontSize: '15px',
+            color: '#d6eaf8',
+            fontStyle: 'bold',
+        }).setOrigin(0.5);
+        codexBtnBg.on('pointerover', () => codexBtnBg.setFillStyle(0x2e5879));
+        codexBtnBg.on('pointerout', () => codexBtnBg.setFillStyle(0x25435c));
+        codexBtnBg.on('pointerdown', () => this.openMonsterCodexPanel());
+        elements.push(codexBtnBg, codexBtnText);
+
         this.townOverlay = this.add.container(0, 0, elements).setDepth(DEPTH.WORLD_FLOATING_TEXT + 5);
     }
 
@@ -1423,6 +1448,7 @@ export class Game extends Scene {
             { label: '属性', color: '#9b59b6', action: () => this.openStatsPanel() },
             { label: '消耗品', color: '#e67e22', action: () => this.openConsumablePanel() },
             { label: '商店', color: '#f1c40f', action: () => this.openShopPanel() },
+            { label: '图鉴', color: '#5dade2', action: () => this.openMonsterCodexPanel() },
             { label: '存档', color: '#95a5a6', action: () => this.manualSave() },
             { label: '重置', color: '#e74c3c', action: () => this.confirmReset() },
         ];
@@ -2268,6 +2294,76 @@ export class Game extends Scene {
         const panelRect: PanelRect = { x: 300, y: 80, width: 424, height: 580 };
         this.createManagedPanel(elements, panelRect, panelBg);
 
+    }
+
+    private openMonsterCodexPanel() {
+        this.closeUI();
+        this.isUIOpen = true;
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+        const entries = Object.values(this.monsterCodex).sort((a, b) => b.killCount - a.killCount || a.name.localeCompare(b.name, 'zh-Hans-CN'));
+
+        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.72).setOrigin(0).setDepth(200).setInteractive();
+        elements.push(bg);
+
+        const panelBg = this.add.rectangle(180, 70, 664, 610, 0x111827).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x5dade2);
+        elements.push(panelBg);
+
+        const title = this.add.text(512, 96, '怪物图鉴', { fontSize: '22px', color: '#d6eaf8', fontStyle: 'bold' }).setOrigin(0.5).setDepth(202);
+        const subtitle = this.add.text(512, 122, `已解锁 ${entries.length} 种怪物`, { fontSize: '12px', color: '#95a5a6' }).setOrigin(0.5).setDepth(202);
+        const closeBtn = this.add.text(820, 82, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
+        closeBtn.on('pointerdown', () => this.closeUI());
+        elements.push(title, subtitle, closeBtn);
+
+        if (entries.length === 0) {
+            const emptyText = this.add.text(512, 360, '尚未记录任何怪物\n进入地牢并击败敌人后将自动解锁图鉴。', {
+                fontSize: '16px',
+                color: '#7f8c8d',
+                align: 'center',
+                lineSpacing: 10,
+            }).setOrigin(0.5).setDepth(202);
+            elements.push(emptyText);
+            this.createManagedPanel(elements, { x: 180, y: 70, width: 664, height: 610 }, panelBg);
+            return;
+        }
+
+        const visibleEntries = entries.slice(0, 10);
+        visibleEntries.forEach((entry, index) => {
+            const y = 160 + index * 44;
+            const row = this.add.rectangle(512, y, 620, 38, index % 2 === 0 ? 0x162234 : 0x12202f, 0.95).setDepth(202);
+            const name = this.add.text(220, y - 10, entry.name, { fontSize: '14px', color: '#ffffff', fontStyle: 'bold' }).setDepth(203);
+            const meta = this.add.text(
+                220,
+                y + 8,
+                `${entry.type.toUpperCase()} · ${this.getCombatStyleLabel(entry.combatStyle)} · 击败 ${entry.killCount} 次`,
+                { fontSize: '11px', color: '#5dade2' },
+            ).setDepth(203);
+            const desc = addBoundedText(this, {
+                x: 470,
+                y: y - 12,
+                content: entry.description,
+                width: 330,
+                height: 26,
+                minFontSize: 10,
+                maxLines: 2,
+                lineSpacing: 4,
+                style: {
+                    fontSize: '11px',
+                    color: '#bdc3c7',
+                },
+            }).setDepth(203);
+            elements.push(row, name, meta, desc);
+        });
+
+        if (entries.length > visibleEntries.length) {
+            const overflow = this.add.text(512, 620, `其余 ${entries.length - visibleEntries.length} 种怪物将在后续图鉴翻页中展示`, {
+                fontSize: '11px',
+                color: '#7f8c8d',
+            }).setOrigin(0.5).setDepth(202);
+            elements.push(overflow);
+        }
+
+        this.createManagedPanel(elements, { x: 180, y: 70, width: 664, height: 610 }, panelBg);
     }
 
     // ─── Tooltip ───

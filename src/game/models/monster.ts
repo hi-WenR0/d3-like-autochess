@@ -61,7 +61,9 @@ export interface MonsterStats {
 /** 怪物实例 */
 export interface Monster {
     id: string;
+    catalogId: string;
     name: string;
+    description: string;
     type: MonsterType;
     floor: number;
     stats: MonsterStats;
@@ -74,6 +76,18 @@ export interface Monster {
     x: number;
     y: number;
 }
+
+export interface MonsterCodexEntry {
+    id: string;
+    name: string;
+    description: string;
+    type: MonsterType;
+    combatStyle: CombatStyle;
+    killCount: number;
+    unlocked: boolean;
+}
+
+export type MonsterCodexData = Record<string, MonsterCodexEntry>;
 
 /** 怪物生成权重 */
 export const MONSTER_SPAWN_WEIGHTS: Record<MonsterType, number> = {
