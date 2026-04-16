@@ -125,6 +125,7 @@ const DUNGEON_HEIGHT = 600;
 const HUD_HEIGHT = 168;
 const PLAYER_SIZE = 24;
 const MANUAL_MOVE_STEP = 8;
+const ENEMY_PERSISTENT_PURSUIT_FACTOR = 0.35;
 const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
@@ -350,7 +351,7 @@ export class Game extends Scene {
 
         switch (this.dungeon.exploreState) {
             case 'exploring':
-                this.updateExploring(time);
+                this.updateExploring(time, dt);
                 break;
             case 'fighting':
                 this.updateFighting(time, dt);
@@ -488,8 +489,10 @@ export class Game extends Scene {
 
     // ─── 状态更新 ───
 
-    private updateExploring(time: number) {
+    private updateExploring(time: number, dt: number) {
         const stats = this.getCurrentStats();
+        this.updateManualMovement(time, stats.moveSpeed);
+        this.updateEnemyPersistentPursuit(dt);
         this.updateMonsterAwareness();
 
         if (this.character.baseStats.hp / stats.maxHp < REST_THRESHOLD) {
@@ -517,10 +520,12 @@ export class Game extends Scene {
             return;
         }
 
-        this.updateManualMovement(time, stats.moveSpeed);
     }
 
     private updateFighting(time: number, dt: number) {
+        const stats = this.getCurrentStats();
+        this.updateManualMovement(time, stats.moveSpeed);
+        this.updateEnemyPersistentPursuit(dt);
         this.updateMonsterAwareness();
         this.currentMonster = this.pickCombatTarget();
         if (!this.currentMonster) {
@@ -528,9 +533,6 @@ export class Game extends Scene {
             return;
         }
 
-        const stats = this.getCurrentStats();
-        this.updateManualMovement(time, stats.moveSpeed);
-        this.updateAlertedCombatMovement(dt);
         const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
         const monsterCombatProfile = getCombatStyleProfile(this.currentMonster.combatStyle);
 
@@ -591,6 +593,8 @@ export class Game extends Scene {
     }
 
     private updateLooting() {
+        this.updateEnemyPersistentPursuit(this.game.loop.delta / 1000);
+        this.updateMonsterAwareness();
         this.stateTimer += this.game.loop.delta;
 
         if (this.lootItems.length === 0 || this.stateTimer >= LOOT_PICKUP_DELAY) {
@@ -618,6 +622,8 @@ export class Game extends Scene {
     }
 
     private updateResting(dt: number) {
+        this.updateEnemyPersistentPursuit(dt);
+        this.updateMonsterAwareness();
         const stats = this.getCurrentStats();
         const recoverAmount = Math.floor(stats.maxHp * REST_RECOVERY_RATE * dt);
         heal(this.character, recoverAmount, this.getCurrentStatBonuses());
@@ -786,32 +792,21 @@ export class Game extends Scene {
         return nearest;
     }
 
-    private updateAlertedCombatMovement(dt: number) {
-        const targetMonster = this.currentMonster;
-        if (!targetMonster) {
-            return;
-        }
-
-        this.getAlertedMonsters().forEach((monster) => {
-            const monsterCombatProfile = getCombatStyleProfile(monster.combatStyle);
-            const monsterStep = monster.stats.moveSpeed * dt;
-            const monsterNext = this.computeStrategyPosition(
+    private updateEnemyPersistentPursuit(dt: number) {
+        this.monsterSprites.forEach((container) => {
+            const monster = container.getData('monster') as Monster;
+            const monsterStep = monster.stats.moveSpeed * ENEMY_PERSISTENT_PURSUIT_FACTOR * dt;
+            const monsterNext = this.computePersistentPursuitPosition(
                 monster.x,
                 monster.y,
                 this.playerSprite.x,
                 this.playerSprite.y,
                 monsterStep,
-                monster.movementStrategy,
-                monsterCombatProfile.approachDistance,
-                monsterCombatProfile.retreatDistance,
             );
             monster.x = monsterNext.x;
             monster.y = monsterNext.y;
 
-            const sprite = this.monsterSprites.get(monster.id);
-            if (sprite) {
-                sprite.setPosition(monsterNext.x, monsterNext.y);
-            }
+            container.setPosition(monsterNext.x, monsterNext.y);
         });
     }
 
@@ -958,17 +953,6 @@ export class Game extends Scene {
         };
     }
 
-    private getAlertedMonsters(): Monster[] {
-        const monsters: Monster[] = [];
-        this.monsterSprites.forEach((container) => {
-            const monster = container.getData('monster') as Monster;
-            if (monster.alertState === 'alerted') {
-                monsters.push(monster);
-            }
-        });
-        return monsters;
-    }
-
     private updateMonsterAwareness() {
         const monsters: Monster[] = [];
         this.monsterSprites.forEach((container) => {
@@ -1026,15 +1010,12 @@ export class Game extends Scene {
         sprite.setAlpha(monster.alertState === 'alerted' ? 1 : 0.82);
     }
 
-    private computeStrategyPosition(
+    private computePersistentPursuitPosition(
         sourceX: number,
         sourceY: number,
         targetX: number,
         targetY: number,
         step: number,
-        strategy: MovementStrategy,
-        approachDistance: number,
-        retreatDistance: number,
     ): { x: number; y: number } {
         const distance = PhaserMath.Distance.Between(sourceX, sourceY, targetX, targetY);
         if (distance <= 0.001 || step <= 0) {
@@ -1042,22 +1023,9 @@ export class Game extends Scene {
         }
 
         const angleToTarget = PhaserMath.Angle.Between(sourceX, sourceY, targetX, targetY);
-        let moveAngle: number | null = null;
-
-        if (strategy === 'approach') {
-            if (distance > approachDistance) {
-                moveAngle = angleToTarget;
-            }
-        } else if (distance < retreatDistance) {
-            moveAngle = angleToTarget + Math.PI;
-        }
-
-        if (moveAngle === null) {
-            return { x: sourceX, y: sourceY };
-        }
-
-        const nextX = PhaserMath.Clamp(sourceX + Math.cos(moveAngle) * step, 30, DUNGEON_WIDTH - 30);
-        const nextY = PhaserMath.Clamp(sourceY + Math.sin(moveAngle) * step, 30, DUNGEON_HEIGHT - 30);
+        const clampedStep = Math.min(step, distance);
+        const nextX = PhaserMath.Clamp(sourceX + Math.cos(angleToTarget) * clampedStep, 30, DUNGEON_WIDTH - 30);
+        const nextY = PhaserMath.Clamp(sourceY + Math.sin(angleToTarget) * clampedStep, 30, DUNGEON_HEIGHT - 30);
         return { x: nextX, y: nextY };
     }
 
