@@ -65,6 +65,7 @@ import {
     createInventory,
     addItem,
     addItemWithAutoDismantle,
+    autoDismantleLowestLevelItems,
     dismantleOne,
     dismantleByRarity,
     normalizeInventoryData,
@@ -654,6 +655,12 @@ export class Game extends Scene {
         if (this.lootItems.length === 0 || this.stateTimer >= LOOT_PICKUP_DELAY) {
             while (this.lootItems.length > 0) {
                 const loot = this.lootItems.pop()!;
+                if (isFull(this.inventory)) {
+                    const dismantleResult = autoDismantleLowestLevelItems(this.inventory, 100);
+                    if (dismantleResult.count > 0) {
+                        this.log(`背包已满，自动分解最低等级 ${dismantleResult.count} 件装备，获得 ${dismantleResult.essence} 精华`);
+                    }
+                }
                 if (!isFull(this.inventory)) {
                     const addResult = addItemWithAutoDismantle(this.inventory, loot.equipment);
                     if (addResult.action === 'dismantled') {

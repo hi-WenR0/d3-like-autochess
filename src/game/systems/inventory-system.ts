@@ -214,6 +214,33 @@ export function dismantleByRarity(inventory: InventoryData, maxRarity: Rarity): 
     return { count, essence };
 }
 
+/** 自动分解等级最低的前 N 件装备 */
+export function autoDismantleLowestLevelItems(inventory: InventoryData, maxCount: number): { count: number; essence: number } {
+    if (maxCount <= 0 || inventory.items.length === 0) {
+        return { count: 0, essence: 0 };
+    }
+
+    const selected = [...inventory.items]
+        .sort((a, b) => {
+            if (a.item.level !== b.item.level) {
+                return a.item.level - b.item.level;
+            }
+            return a.slotIndex - b.slotIndex;
+        })
+        .slice(0, Math.min(maxCount, inventory.items.length));
+
+    if (selected.length === 0) {
+        return { count: 0, essence: 0 };
+    }
+
+    const selectedSlots = new Set(selected.map((item) => item.slotIndex));
+    const essence = selected.reduce((sum, item) => sum + dismantleValue(item.item), 0);
+    inventory.items = inventory.items.filter((item) => !selectedSlots.has(item.slotIndex));
+    inventory.dismantleEssence += essence;
+
+    return { count: selected.length, essence };
+}
+
 /** 是否触发自动拆解 */
 export function shouldAutoDismantle(inventory: InventoryData, equipment: Equipment): boolean {
     if (!inventory.autoDismantleEnabled) return false;

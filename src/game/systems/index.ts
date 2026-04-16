@@ -2,7 +2,7 @@ export { createCharacter, getEffectiveStats, addExperience, allocateStatPoint, t
 export { spawnMonster, monsterTakeDamage, getMonsterAttack } from './monster-system';
 export { calculateDamage, applyDamageToMonster, calculateIncomingDamage, playerAttackMonster, collectAffixEffects, type CombatResult, type AffixEffects } from './combat-system';
 export { shouldDropEquipment, bossDropCount, rollRarity, generateEquipment, randomSlot } from './loot-system';
-export { createInventory, addItem, removeItem, getItem, isFull, count, filterByRarity, sellByRarity, type InventoryData } from './inventory-system';
+export { createInventory, addItem, removeItem, getItem, isFull, count, filterByRarity, sellByRarity, autoDismantleLowestLevelItems, type InventoryData } from './inventory-system';
 export { createEquippedItems, equipItem, unequipItem, getEquipped, getAllEquipped, calculateEquipBonuses, findAvailableRingSlot, type EquippedItems, type EquipBonuses } from './equip-system';
 export { createDungeonState, monstersForFloor, canProceedToNextFloor, proceedToNextFloor, setExploreState, onMonsterKilled, getCurrentZone, isBossFloor } from './dungeon-system';
 export { saveGame, loadGame, deleteSave, hasSave, getOfflineDuration, calculateOfflineRewards, AutoSaveManager, type SaveData, type OfflineRewards } from './save-system';
