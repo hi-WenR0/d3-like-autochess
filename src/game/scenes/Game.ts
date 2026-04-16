@@ -188,7 +188,6 @@ export class Game extends Scene {
     monsterSprites: Map<string, Phaser.GameObjects.Container> = new Map();
     lootItems: { x: number; y: number; equipment: Equipment; sprite: Phaser.GameObjects.Container }[] = [];
     currentMonster: Monster | null = null;
-    private manualMoveDirection: ManualMoveDirection | null = null;
     private manualMoveLastStepAt = 0;
     private manualMoveBindingsReady = false;
     private manualMovePressed: Record<ManualMoveDirection, boolean> = {
@@ -838,13 +837,12 @@ export class Game extends Scene {
         }
 
         this.manualMovePressed[direction] = true;
-        this.manualMoveDirection = direction;
 
         if (event.repeat) {
             return;
         }
 
-        if (this.movePlayerManually(direction)) {
+        if (this.movePlayerManually()) {
             this.manualMoveLastStepAt = this.time.now;
         } else {
             this.manualMoveLastStepAt = this.time.now;
@@ -858,10 +856,7 @@ export class Game extends Scene {
         }
 
         this.manualMovePressed[direction] = false;
-        if (this.manualMoveDirection === direction) {
-            this.manualMoveDirection = this.resolveManualMoveDirection();
-            this.manualMoveLastStepAt = this.time.now;
-        }
+        this.manualMoveLastStepAt = this.time.now;
     }
 
     private getManualMoveDirectionFromEvent(event: KeyboardEvent): ManualMoveDirection | null {
@@ -879,16 +874,8 @@ export class Game extends Scene {
         }
     }
 
-    private resolveManualMoveDirection(): ManualMoveDirection | null {
-        if (this.manualMovePressed.up) return 'up';
-        if (this.manualMovePressed.down) return 'down';
-        if (this.manualMovePressed.left) return 'left';
-        if (this.manualMovePressed.right) return 'right';
-        return null;
-    }
-
     private updateManualMovement(time: number, moveSpeed: number) {
-        if (!this.manualMoveDirection) {
+        if (!this.hasManualMovementInput()) {
             return;
         }
 
@@ -897,8 +884,7 @@ export class Game extends Scene {
             return;
         }
 
-        const direction = this.manualMoveDirection;
-        if (this.movePlayerManually(direction)) {
+        if (this.movePlayerManually()) {
             this.manualMoveLastStepAt = time;
             return;
         }
@@ -906,24 +892,39 @@ export class Game extends Scene {
         this.manualMoveLastStepAt = time;
     }
 
-    private movePlayerManually(direction: ManualMoveDirection): boolean {
-        let nextX = this.playerSprite.x;
-        let nextY = this.playerSprite.y;
+    private hasManualMovementInput(): boolean {
+        return this.manualMovePressed.up
+            || this.manualMovePressed.down
+            || this.manualMovePressed.left
+            || this.manualMovePressed.right;
+    }
 
-        switch (direction) {
-            case 'up':
-                nextY -= MANUAL_MOVE_STEP;
-                break;
-            case 'down':
-                nextY += MANUAL_MOVE_STEP;
-                break;
-            case 'left':
-                nextX -= MANUAL_MOVE_STEP;
-                break;
-            case 'right':
-                nextX += MANUAL_MOVE_STEP;
-                break;
+    private getManualMovementVector(): { x: number; y: number } | null {
+        const inputX = (this.manualMovePressed.right ? 1 : 0) - (this.manualMovePressed.left ? 1 : 0);
+        const inputY = (this.manualMovePressed.down ? 1 : 0) - (this.manualMovePressed.up ? 1 : 0);
+        if (inputX === 0 && inputY === 0) {
+            return null;
         }
+
+        const magnitude = Math.hypot(inputX, inputY);
+        if (magnitude <= 0.001) {
+            return null;
+        }
+
+        return {
+            x: (inputX / magnitude) * MANUAL_MOVE_STEP,
+            y: (inputY / magnitude) * MANUAL_MOVE_STEP,
+        };
+    }
+
+    private movePlayerManually(): boolean {
+        const movement = this.getManualMovementVector();
+        if (!movement) {
+            return false;
+        }
+
+        let nextX = this.playerSprite.x + movement.x;
+        let nextY = this.playerSprite.y + movement.y;
 
         nextX = PhaserMath.Clamp(nextX, 30, DUNGEON_WIDTH - 30);
         nextY = PhaserMath.Clamp(nextY, 30, DUNGEON_HEIGHT - 30);
