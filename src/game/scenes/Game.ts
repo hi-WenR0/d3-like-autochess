@@ -124,7 +124,6 @@ const DUNGEON_WIDTH = 1024;
 const DUNGEON_HEIGHT = 600;
 const HUD_HEIGHT = 168;
 const PLAYER_SIZE = 24;
-const MANUAL_MOVE_STEP = 8;
 const ENEMY_PERSISTENT_PURSUIT_FACTOR = 0.35;
 const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
@@ -188,7 +187,6 @@ export class Game extends Scene {
     monsterSprites: Map<string, Phaser.GameObjects.Container> = new Map();
     lootItems: { x: number; y: number; equipment: Equipment; sprite: Phaser.GameObjects.Container }[] = [];
     currentMonster: Monster | null = null;
-    private manualMoveLastStepAt = 0;
     private manualMoveBindingsReady = false;
     private manualMovePressed: Record<ManualMoveDirection, boolean> = {
         up: false,
@@ -350,7 +348,7 @@ export class Game extends Scene {
 
         switch (this.dungeon.exploreState) {
             case 'exploring':
-                this.updateExploring(time, dt);
+                this.updateExploring(dt);
                 break;
             case 'fighting':
                 this.updateFighting(time, dt);
@@ -488,9 +486,9 @@ export class Game extends Scene {
 
     // ─── 状态更新 ───
 
-    private updateExploring(time: number, dt: number) {
+    private updateExploring(dt: number) {
         const stats = this.getCurrentStats();
-        this.updateManualMovement(time, stats.moveSpeed);
+        this.updateManualMovement(dt, stats.moveSpeed);
         this.updateEnemyPersistentPursuit(dt);
         this.updateMonsterAwareness();
 
@@ -523,7 +521,7 @@ export class Game extends Scene {
 
     private updateFighting(time: number, dt: number) {
         const stats = this.getCurrentStats();
-        this.updateManualMovement(time, stats.moveSpeed);
+        this.updateManualMovement(dt, stats.moveSpeed);
         this.updateEnemyPersistentPursuit(dt);
         this.updateMonsterAwareness();
         this.currentMonster = this.pickCombatTarget();
@@ -837,16 +835,6 @@ export class Game extends Scene {
         }
 
         this.manualMovePressed[direction] = true;
-
-        if (event.repeat) {
-            return;
-        }
-
-        if (this.movePlayerManually()) {
-            this.manualMoveLastStepAt = this.time.now;
-        } else {
-            this.manualMoveLastStepAt = this.time.now;
-        }
     }
 
     private onManualMoveKeyUp(event: KeyboardEvent) {
@@ -856,7 +844,6 @@ export class Game extends Scene {
         }
 
         this.manualMovePressed[direction] = false;
-        this.manualMoveLastStepAt = this.time.now;
     }
 
     private getManualMoveDirectionFromEvent(event: KeyboardEvent): ManualMoveDirection | null {
@@ -874,22 +861,12 @@ export class Game extends Scene {
         }
     }
 
-    private updateManualMovement(time: number, moveSpeed: number) {
+    private updateManualMovement(dt: number, moveSpeed: number) {
         if (!this.hasManualMovementInput()) {
             return;
         }
 
-        const interval = Math.max(1, Math.floor((MANUAL_MOVE_STEP / Math.max(0.1, moveSpeed)) * 1000));
-        if (time - this.manualMoveLastStepAt < interval) {
-            return;
-        }
-
-        if (this.movePlayerManually()) {
-            this.manualMoveLastStepAt = time;
-            return;
-        }
-
-        this.manualMoveLastStepAt = time;
+        this.movePlayerManually(dt, moveSpeed);
     }
 
     private hasManualMovementInput(): boolean {
@@ -912,19 +889,20 @@ export class Game extends Scene {
         }
 
         return {
-            x: (inputX / magnitude) * MANUAL_MOVE_STEP,
-            y: (inputY / magnitude) * MANUAL_MOVE_STEP,
+            x: inputX / magnitude,
+            y: inputY / magnitude,
         };
     }
 
-    private movePlayerManually(): boolean {
+    private movePlayerManually(dt: number, moveSpeed: number): boolean {
         const movement = this.getManualMovementVector();
         if (!movement) {
             return false;
         }
 
-        let nextX = this.playerSprite.x + movement.x;
-        let nextY = this.playerSprite.y + movement.y;
+        const step = Math.max(0, moveSpeed) * dt;
+        let nextX = this.playerSprite.x + movement.x * step;
+        let nextY = this.playerSprite.y + movement.y * step;
 
         nextX = PhaserMath.Clamp(nextX, 30, DUNGEON_WIDTH - 30);
         nextY = PhaserMath.Clamp(nextY, 30, DUNGEON_HEIGHT - 30);
