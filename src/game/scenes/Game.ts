@@ -644,7 +644,10 @@ export class Game extends Scene {
     }
 
     private updateLooting() {
-        this.updateEnemyPersistentPursuit(this.game.loop.delta / 1000);
+        const dt = this.game.loop.delta / 1000;
+        const stats = this.getCurrentStats();
+        this.updateManualMovement(dt, stats.moveSpeed);
+        this.updateEnemyPersistentPursuit(dt);
         this.updateMonsterAwareness();
         this.stateTimer += this.game.loop.delta;
 
