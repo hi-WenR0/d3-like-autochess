@@ -124,10 +124,13 @@ const DUNGEON_WIDTH = 1024;
 const DUNGEON_HEIGHT = 600;
 const HUD_HEIGHT = 168;
 const PLAYER_SIZE = 24;
+const MANUAL_MOVE_STEP = 8;
 const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
 const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
+
+type ManualMoveDirection = 'up' | 'down' | 'left' | 'right';
 
 const DEPTH = {
     WORLD_TILE: 0,
@@ -184,6 +187,15 @@ export class Game extends Scene {
     monsterSprites: Map<string, Phaser.GameObjects.Container> = new Map();
     lootItems: { x: number; y: number; equipment: Equipment; sprite: Phaser.GameObjects.Container }[] = [];
     currentMonster: Monster | null = null;
+    private manualMoveDirection: ManualMoveDirection | null = null;
+    private manualMoveLastStepAt = 0;
+    private manualMoveBindingsReady = false;
+    private manualMovePressed: Record<ManualMoveDirection, boolean> = {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+    };
 
     // 计时器
     lastAttackTime = 0;
@@ -272,6 +284,7 @@ export class Game extends Scene {
 
         this.renderDungeon();
         this.renderPlayer();
+        this.setupManualMovementControls();
         this.renderHUD();
         this.spawnMonstersForFloor();
         this.enterTown(true);
@@ -337,7 +350,7 @@ export class Game extends Scene {
 
         switch (this.dungeon.exploreState) {
             case 'exploring':
-                this.updateExploring(dt);
+                this.updateExploring(time);
                 break;
             case 'fighting':
                 this.updateFighting(time, dt);
@@ -475,7 +488,7 @@ export class Game extends Scene {
 
     // ─── 状态更新 ───
 
-    private updateExploring(dt: number) {
+    private updateExploring(time: number) {
         const stats = this.getCurrentStats();
         this.updateMonsterAwareness();
 
@@ -504,7 +517,7 @@ export class Game extends Scene {
             return;
         }
 
-        this.movePlayerTowardMonster(dt);
+        this.updateManualMovement(time, stats.moveSpeed);
     }
 
     private updateFighting(time: number, dt: number) {
@@ -516,7 +529,8 @@ export class Game extends Scene {
         }
 
         const stats = this.getCurrentStats();
-        this.updateAlertedCombatMovement(dt, stats.moveSpeed);
+        this.updateManualMovement(time, stats.moveSpeed);
+        this.updateAlertedCombatMovement(dt);
         const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
         const monsterCombatProfile = getCombatStyleProfile(this.currentMonster.combatStyle);
 
@@ -772,57 +786,11 @@ export class Game extends Scene {
         return nearest;
     }
 
-    private movePlayerTowardMonster(dt: number) {
-        const stats = this.getCurrentStats();
-        const speed = stats.moveSpeed * dt;
-        const nearest = this.findNearestMonster();
-        const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
-
-        if (nearest) {
-            const next = this.computeStrategyPosition(
-                this.playerSprite.x,
-                this.playerSprite.y,
-                nearest.x,
-                nearest.y,
-                speed,
-                this.playerMovementStrategy,
-                playerCombatProfile.approachDistance,
-                playerCombatProfile.retreatDistance,
-            );
-            this.playerSprite.setPosition(next.x, next.y);
-            return;
-        }
-
-        let angle = this.playerSprite.getData('moveAngle') ?? Math.random() * Math.PI * 2;
-        if (Math.random() < 0.02) {
-            angle = Math.random() * Math.PI * 2;
-            this.playerSprite.setData('moveAngle', angle);
-        }
-
-        const nx = PhaserMath.Clamp(this.playerSprite.x + Math.cos(angle) * speed, 30, DUNGEON_WIDTH - 30);
-        const ny = PhaserMath.Clamp(this.playerSprite.y + Math.sin(angle) * speed, 30, DUNGEON_HEIGHT - 30);
-        this.playerSprite.setPosition(nx, ny);
-    }
-
-    private updateAlertedCombatMovement(dt: number, playerMoveSpeed: number) {
+    private updateAlertedCombatMovement(dt: number) {
         const targetMonster = this.currentMonster;
         if (!targetMonster) {
             return;
         }
-
-        const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
-        const playerStep = playerMoveSpeed * dt;
-        const playerNext = this.computeStrategyPosition(
-            this.playerSprite.x,
-            this.playerSprite.y,
-            targetMonster.x,
-            targetMonster.y,
-            playerStep,
-            this.playerMovementStrategy,
-            playerCombatProfile.approachDistance,
-            playerCombatProfile.retreatDistance,
-        );
-        this.playerSprite.setPosition(playerNext.x, playerNext.y);
 
         this.getAlertedMonsters().forEach((monster) => {
             const monsterCombatProfile = getCombatStyleProfile(monster.combatStyle);
@@ -845,6 +813,132 @@ export class Game extends Scene {
                 sprite.setPosition(monsterNext.x, monsterNext.y);
             }
         });
+    }
+
+    private setupManualMovementControls() {
+        if (this.manualMoveBindingsReady) {
+            return;
+        }
+
+        const keyboard = this.input.keyboard;
+        if (!keyboard) {
+            return;
+        }
+
+        this.manualMoveBindingsReady = true;
+        keyboard.on('keydown-UP', this.onManualMoveKeyDown, this);
+        keyboard.on('keydown-DOWN', this.onManualMoveKeyDown, this);
+        keyboard.on('keydown-LEFT', this.onManualMoveKeyDown, this);
+        keyboard.on('keydown-RIGHT', this.onManualMoveKeyDown, this);
+        keyboard.on('keyup-UP', this.onManualMoveKeyUp, this);
+        keyboard.on('keyup-DOWN', this.onManualMoveKeyUp, this);
+        keyboard.on('keyup-LEFT', this.onManualMoveKeyUp, this);
+        keyboard.on('keyup-RIGHT', this.onManualMoveKeyUp, this);
+    }
+
+    private onManualMoveKeyDown(event: KeyboardEvent) {
+        const direction = this.getManualMoveDirectionFromEvent(event);
+        if (!direction) {
+            return;
+        }
+
+        this.manualMovePressed[direction] = true;
+        this.manualMoveDirection = direction;
+
+        if (event.repeat) {
+            return;
+        }
+
+        if (this.movePlayerManually(direction)) {
+            this.manualMoveLastStepAt = this.time.now;
+        } else {
+            this.manualMoveLastStepAt = this.time.now;
+        }
+    }
+
+    private onManualMoveKeyUp(event: KeyboardEvent) {
+        const direction = this.getManualMoveDirectionFromEvent(event);
+        if (!direction) {
+            return;
+        }
+
+        this.manualMovePressed[direction] = false;
+        if (this.manualMoveDirection === direction) {
+            this.manualMoveDirection = this.resolveManualMoveDirection();
+            this.manualMoveLastStepAt = this.time.now;
+        }
+    }
+
+    private getManualMoveDirectionFromEvent(event: KeyboardEvent): ManualMoveDirection | null {
+        switch (event.code) {
+            case 'ArrowUp':
+                return 'up';
+            case 'ArrowDown':
+                return 'down';
+            case 'ArrowLeft':
+                return 'left';
+            case 'ArrowRight':
+                return 'right';
+            default:
+                return null;
+        }
+    }
+
+    private resolveManualMoveDirection(): ManualMoveDirection | null {
+        if (this.manualMovePressed.up) return 'up';
+        if (this.manualMovePressed.down) return 'down';
+        if (this.manualMovePressed.left) return 'left';
+        if (this.manualMovePressed.right) return 'right';
+        return null;
+    }
+
+    private updateManualMovement(time: number, moveSpeed: number) {
+        if (!this.manualMoveDirection) {
+            return;
+        }
+
+        const interval = Math.max(1, Math.floor((MANUAL_MOVE_STEP / Math.max(0.1, moveSpeed)) * 1000));
+        if (time - this.manualMoveLastStepAt < interval) {
+            return;
+        }
+
+        const direction = this.manualMoveDirection;
+        if (this.movePlayerManually(direction)) {
+            this.manualMoveLastStepAt = time;
+            return;
+        }
+
+        this.manualMoveLastStepAt = time;
+    }
+
+    private movePlayerManually(direction: ManualMoveDirection): boolean {
+        let nextX = this.playerSprite.x;
+        let nextY = this.playerSprite.y;
+
+        switch (direction) {
+            case 'up':
+                nextY -= MANUAL_MOVE_STEP;
+                break;
+            case 'down':
+                nextY += MANUAL_MOVE_STEP;
+                break;
+            case 'left':
+                nextX -= MANUAL_MOVE_STEP;
+                break;
+            case 'right':
+                nextX += MANUAL_MOVE_STEP;
+                break;
+        }
+
+        nextX = PhaserMath.Clamp(nextX, 30, DUNGEON_WIDTH - 30);
+        nextY = PhaserMath.Clamp(nextY, 30, DUNGEON_HEIGHT - 30);
+
+        if (nextX === this.playerSprite.x && nextY === this.playerSprite.y) {
+            return false;
+        }
+
+        this.playerSprite.setPosition(nextX, nextY);
+        return true;
     }
 
     private getCombatStyleLabel(style: CombatStyle): string {
