@@ -77,6 +77,18 @@ import {
     type InventoryData,
 } from '../systems/inventory-system';
 import {
+    type PlayerFacing,
+    PLAYER_ANIMATION_FRAME_COUNT,
+    PLAYER_ANIMATION_FRAME_RATE,
+    PLAYER_ANIM_STATES,
+    PLAYER_FACINGS,
+    type PlayerAnimState,
+    PLAYER_PROJECTILE_TEXTURE_KEYS,
+    PLAYER_SPRITE_SCALE,
+    getPlayerAnimationKey,
+    getPlayerSpritesheetKey,
+} from '../player-visuals';
+import {
     createEquippedItems,
     equipItem,
     canEquipItem,
@@ -131,10 +143,12 @@ const REST_RECOVERY_RATE = 0.05;
 const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
 
 type ManualMoveDirection = 'up' | 'down' | 'left' | 'right';
+type ProjectileClass = 'ranger' | 'mage';
 
 const DEPTH = {
     WORLD_TILE: 0,
     WORLD_ENTITY: 20,
+    WORLD_PROJECTILE: 25,
     WORLD_LOOT: 30,
     WORLD_HIGHLIGHT_LOOT: 35,
     WORLD_FLOATING_TEXT: 80,
@@ -170,6 +184,24 @@ interface DungeonRunSummary {
     gainedConsumables: Map<string, number>;
 }
 
+interface PlayerProjectile {
+    sprite: Phaser.GameObjects.Image;
+    target: Monster;
+    ownerClass: ProjectileClass;
+}
+
+const PLAYER_PROJECTILE_SPEED: Record<ProjectileClass, number> = {
+    ranger: 320,
+    mage: 260,
+};
+
+const PLAYER_PROJECTILE_SCALE: Record<ProjectileClass, number> = {
+    ranger: 2.5,
+    mage: 6,
+};
+
+const PLAYER_PROJECTILE_HIT_RADIUS = 18;
+
 export class Game extends Scene {
     // 游戏数据
     character!: CharacterData;
@@ -184,9 +216,16 @@ export class Game extends Scene {
 
     // 游戏对象
     playerSprite!: Phaser.GameObjects.Container;
+    playerBodySprite!: Phaser.GameObjects.Sprite;
+    playerProjectiles: PlayerProjectile[] = [];
     monsterSprites: Map<string, Phaser.GameObjects.Container> = new Map();
     lootItems: { x: number; y: number; equipment: Equipment; sprite: Phaser.GameObjects.Container }[] = [];
     currentMonster: Monster | null = null;
+    private playerFacing: PlayerFacing = 'down';
+    private playerFacingLeft = false;
+    private playerAttackLockUntil = 0;
+    private playerAttackFacing: PlayerFacing = 'down';
+    private playerAttackFacingLeft = false;
     private manualMoveBindingsReady = false;
     private manualMovePressed: Record<ManualMoveDirection, boolean> = {
         up: false,
@@ -364,6 +403,7 @@ export class Game extends Scene {
                 break;
         }
 
+        this.updatePlayerProjectiles(dt);
         this.updateHUD();
     }
 
@@ -419,15 +459,23 @@ export class Game extends Scene {
     // ─── 角色渲染 ───
 
     private renderPlayer() {
-        const classColor = parseInt(BASE_CLASS_CONFIG[this.character.baseClass].color.replace('#', ''), 16);
-        const body = this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, classColor);
-        const label = this.add.text(0, -PLAYER_SIZE, '你', { fontSize: '10px', color: '#ffffff' }).setOrigin(0.5);
+        this.ensurePlayerAnimations();
+
+        const body = this.add.sprite(0, 0, getPlayerSpritesheetKey(this.character.baseClass, 'down', 'idle'))
+            .setScale(PLAYER_SPRITE_SCALE);
+        const label = this.add.text(0, -PLAYER_SIZE - 18, '你', { fontSize: '10px', color: '#ffffff' }).setOrigin(0.5);
+
+        this.playerBodySprite = body;
+        this.playerFacing = 'down';
+        this.playerFacingLeft = false;
         this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(DEPTH.WORLD_ENTITY);
+        this.applyPlayerAnimationState('idle');
     }
 
     // ─── 怪物 ───
 
     private spawnMonstersForFloor() {
+        this.clearPlayerProjectiles();
         this.monsterSprites.forEach(s => s.destroy());
         this.monsterSprites.clear();
 
@@ -550,6 +598,12 @@ export class Game extends Scene {
         const attackInterval = 1000 / Math.max(0.1, stats.attackSpeed);
         if (time - this.lastAttackTime < attackInterval) return;
         this.lastAttackTime = time;
+        this.triggerPlayerAttackAnimation();
+
+        if (this.shouldUsePlayerProjectile(this.character.baseClass)) {
+            this.launchPlayerProjectile(this.character.baseClass, this.currentMonster);
+            return;
+        }
 
         const result = playerAttackMonster(
             this.character,
@@ -749,6 +803,7 @@ export class Game extends Scene {
     }
 
     private onPlayerDeath() {
+        this.clearPlayerProjectiles();
         // 复活甲词条
         if (this.affixEffects.rebirthChance > 0 && Math.random() * 100 < this.affixEffects.rebirthChance) {
             const stats = this.getCurrentStats();
@@ -807,6 +862,123 @@ export class Game extends Scene {
         });
     }
 
+    private shouldUsePlayerProjectile(baseClass: CharacterBaseClass): baseClass is ProjectileClass {
+        return baseClass === 'ranger' || baseClass === 'mage';
+    }
+
+    private launchPlayerProjectile(baseClass: ProjectileClass, target: Monster) {
+        const textureKey = PLAYER_PROJECTILE_TEXTURE_KEYS[baseClass];
+        if (!textureKey) {
+            return;
+        }
+
+        const sprite = this.add.image(this.playerSprite.x, this.playerSprite.y, textureKey)
+            .setScale(PLAYER_PROJECTILE_SCALE[baseClass])
+            .setDepth(DEPTH.WORLD_PROJECTILE);
+
+        this.playerProjectiles.push({
+            sprite,
+            target,
+            ownerClass: baseClass,
+        });
+    }
+
+    private updatePlayerProjectiles(dt: number) {
+        for (let i = this.playerProjectiles.length - 1; i >= 0; i--) {
+            const projectile = this.playerProjectiles[i];
+            const targetSprite = this.monsterSprites.get(projectile.target.id);
+            if (!targetSprite || projectile.target.stats.hp <= 0) {
+                this.destroyPlayerProjectileAt(i);
+                continue;
+            }
+
+            const angle = PhaserMath.Angle.Between(
+                projectile.sprite.x,
+                projectile.sprite.y,
+                targetSprite.x,
+                targetSprite.y,
+            );
+            const speed = PLAYER_PROJECTILE_SPEED[projectile.ownerClass];
+            projectile.sprite.x += Math.cos(angle) * speed * dt;
+            projectile.sprite.y += Math.sin(angle) * speed * dt;
+            projectile.sprite.setRotation(angle);
+
+            const distanceToTarget = PhaserMath.Distance.Between(
+                projectile.sprite.x,
+                projectile.sprite.y,
+                targetSprite.x,
+                targetSprite.y,
+            );
+            if (distanceToTarget <= PLAYER_PROJECTILE_HIT_RADIUS) {
+                this.resolvePlayerProjectileHit(projectile, i);
+            }
+        }
+    }
+
+    private resolvePlayerProjectileHit(projectile: PlayerProjectile, projectileIndex: number) {
+        const monster = projectile.target;
+        const monsterSprite = this.monsterSprites.get(monster.id);
+        if (!monsterSprite || monster.stats.hp <= 0) {
+            this.destroyPlayerProjectileAt(projectileIndex);
+            return;
+        }
+
+        const stats = this.getCurrentStats();
+        const monsterCombatProfile = getCombatStyleProfile(monster.combatStyle);
+        const distanceToTarget = PhaserMath.Distance.Between(
+            this.playerSprite.x,
+            this.playerSprite.y,
+            monster.x,
+            monster.y,
+        );
+        const result = playerAttackMonster(
+            this.character,
+            monster,
+            this.affixEffects,
+            stats,
+            distanceToTarget <= monsterCombatProfile.attackRange,
+        );
+
+        if (result.damageDealt > 0) {
+            const suffixParts: string[] = [];
+            if (result.isCombo) suffixParts.push('连击!');
+            if (result.specializationProc) suffixParts.push(result.specializationProc);
+            const suffix = suffixParts.length > 0 ? ` ${suffixParts.join(' ')}` : '';
+            this.showDamageNumber(monster.x, monster.y - 30, result.damageDealt, result.isCrit, suffix);
+        }
+
+        if (result.lifeStealHeal > 0) {
+            this.showHealNumber(this.playerSprite.x, this.playerSprite.y - 30, result.lifeStealHeal);
+        }
+
+        if (result.specializationHeal > 0) {
+            this.showHealNumber(this.playerSprite.x + 18, this.playerSprite.y - 46, result.specializationHeal);
+        }
+
+        if (result.isEvaded) {
+            this.showEvadeText(this.playerSprite.x, this.playerSprite.y - 20);
+        }
+
+        if (result.monsterKilled) {
+            this.onMonsterKilled(monster, result);
+        } else {
+            this.updateMonsterHpBar(monster);
+        }
+
+        this.destroyPlayerProjectileAt(projectileIndex);
+    }
+
+    private destroyPlayerProjectileAt(index: number) {
+        const projectile = this.playerProjectiles[index];
+        projectile.sprite.destroy();
+        this.playerProjectiles.splice(index, 1);
+    }
+
+    private clearPlayerProjectiles() {
+        this.playerProjectiles.forEach((projectile) => projectile.sprite.destroy());
+        this.playerProjectiles = [];
+    }
+
     private setupManualMovementControls() {
         if (this.manualMoveBindingsReady) {
             return;
@@ -862,18 +1034,21 @@ export class Game extends Scene {
     }
 
     private updateManualMovement(dt: number, moveSpeed: number) {
-        if (!this.hasManualMovementInput()) {
+        const movement = this.getManualMovementVector();
+        if (!movement) {
+            if (this.isPlayerAttackAnimationLocked()) {
+                return;
+            }
+            this.applyPlayerAnimationState('idle');
             return;
         }
 
-        this.movePlayerManually(dt, moveSpeed);
-    }
-
-    private hasManualMovementInput(): boolean {
-        return this.manualMovePressed.up
-            || this.manualMovePressed.down
-            || this.manualMovePressed.left
-            || this.manualMovePressed.right;
+        const moved = this.movePlayerManually(dt, moveSpeed, movement);
+        if (this.isPlayerAttackAnimationLocked()) {
+            return;
+        }
+        this.updatePlayerFacingFromMovement(movement);
+        this.applyPlayerAnimationState(moved ? 'walk' : 'idle');
     }
 
     private getManualMovementVector(): { x: number; y: number } | null {
@@ -894,12 +1069,7 @@ export class Game extends Scene {
         };
     }
 
-    private movePlayerManually(dt: number, moveSpeed: number): boolean {
-        const movement = this.getManualMovementVector();
-        if (!movement) {
-            return false;
-        }
-
+    private movePlayerManually(dt: number, moveSpeed: number, movement: { x: number; y: number }): boolean {
         const step = Math.max(0, moveSpeed) * dt;
         let nextX = this.playerSprite.x + movement.x * step;
         let nextY = this.playerSprite.y + movement.y * step;
@@ -913,6 +1083,70 @@ export class Game extends Scene {
 
         this.playerSprite.setPosition(nextX, nextY);
         return true;
+    }
+
+    private ensurePlayerAnimations() {
+        PLAYER_FACINGS.forEach((facing) => {
+            PLAYER_ANIM_STATES.forEach((state) => {
+                const animationKey = getPlayerAnimationKey(this.character.baseClass, facing, state);
+                if (this.anims.exists(animationKey)) {
+                    return;
+                }
+
+                this.anims.create({
+                    key: animationKey,
+                    frames: this.anims.generateFrameNumbers(
+                        getPlayerSpritesheetKey(this.character.baseClass, facing, state),
+                        {
+                            start: 0,
+                            end: PLAYER_ANIMATION_FRAME_COUNT[state] - 1,
+                        },
+                    ),
+                    frameRate: PLAYER_ANIMATION_FRAME_RATE[state],
+                    repeat: state === 'attack' ? 0 : -1,
+                });
+            });
+        });
+    }
+
+    private updatePlayerFacingFromMovement(movement: { x: number; y: number }) {
+        if (Math.abs(movement.y) >= Math.abs(movement.x)) {
+            this.playerFacing = movement.y < 0 ? 'up' : 'down';
+            this.playerFacingLeft = false;
+            return;
+        }
+
+        this.playerFacing = 'side';
+        this.playerFacingLeft = movement.x < 0;
+    }
+
+    private isPlayerAttackAnimationLocked(): boolean {
+        return this.time.now < this.playerAttackLockUntil;
+    }
+
+    private triggerPlayerAttackAnimation() {
+        this.playerAttackFacing = this.playerFacing;
+        this.playerAttackFacingLeft = this.playerFacingLeft;
+        const duration = (PLAYER_ANIMATION_FRAME_COUNT.attack / PLAYER_ANIMATION_FRAME_RATE.attack) * 1000;
+        this.playerAttackLockUntil = this.time.now + duration;
+        this.applyPlayerAnimationState('attack', true);
+    }
+
+    private applyPlayerAnimationState(state: PlayerAnimState, forceRestart = false) {
+        if (!this.playerBodySprite) {
+            return;
+        }
+
+        const facing = state === 'attack' ? this.playerAttackFacing : this.playerFacing;
+        const facingLeft = state === 'attack' ? this.playerAttackFacingLeft : this.playerFacingLeft;
+
+        this.playerBodySprite.setFlipX(facing === 'side' && !facingLeft);
+        const animationKey = getPlayerAnimationKey(this.character.baseClass, facing, state);
+        if (!forceRestart && this.playerBodySprite.anims.currentAnim?.key === animationKey) {
+            return;
+        }
+
+        this.playerBodySprite.play(animationKey, true);
     }
 
     private getCombatStyleLabel(style: CombatStyle): string {
@@ -1102,6 +1336,7 @@ export class Game extends Scene {
         }
 
         this.skillCooldowns[skill.id] = time + skill.cooldownMs;
+        this.triggerPlayerAttackAnimation();
         const result = playerUseSkillOnMonster(this.character, monster, this.affixEffects, skill, stats);
         this.showDamageNumber(monster.x, monster.y - 44, result.damageDealt, result.isCrit, ` ${result.skillName}`);
 
@@ -1292,6 +1527,7 @@ export class Game extends Scene {
         this.floorTiles.forEach(tile => tile.setVisible(visible));
         this.monsterSprites.forEach(sprite => sprite.setVisible(visible));
         this.lootItems.forEach(item => item.sprite.setVisible(visible));
+        this.playerProjectiles.forEach((projectile) => projectile.sprite.setVisible(visible));
     }
 
     private hideTownOverlay() {
@@ -1463,6 +1699,7 @@ export class Game extends Scene {
         if (!initial) {
             this.closeUI();
         }
+        this.clearPlayerProjectiles();
         this.gameplayPhase = 'town';
         this.currentMonster = null;
         setExploreState(this.dungeon, 'exploring');

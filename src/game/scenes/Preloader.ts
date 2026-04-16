@@ -1,4 +1,16 @@
 import { Scene } from 'phaser';
+import type { CharacterBaseClass } from '../models';
+import {
+    PLAYER_ANIM_STATES,
+    PLAYER_FACINGS,
+    PLAYER_PROJECTILE_TEXTURE_KEYS,
+    PLAYER_PROJECTILE_TEXTURE_PATHS,
+    PLAYER_SPRITE_FRAME_SIZE,
+    getPlayerSpritesheetKey,
+    getPlayerSpritesheetPath,
+} from '../player-visuals';
+
+const PLAYER_CLASSES: CharacterBaseClass[] = ['berserker', 'ranger', 'mage'];
 
 export class Preloader extends Scene
 {
@@ -33,6 +45,31 @@ export class Preloader extends Scene
         this.load.setPath('assets');
 
         this.load.image('logo', 'logo.png');
+
+        PLAYER_CLASSES.forEach((baseClass) => {
+            PLAYER_FACINGS.forEach((facing) => {
+                PLAYER_ANIM_STATES.forEach((state) => {
+                    this.load.spritesheet(
+                        getPlayerSpritesheetKey(baseClass, facing, state),
+                        getPlayerSpritesheetPath(baseClass, facing, state),
+                        {
+                            frameWidth: PLAYER_SPRITE_FRAME_SIZE,
+                            frameHeight: PLAYER_SPRITE_FRAME_SIZE,
+                        },
+                    );
+                });
+            });
+        });
+
+        (Object.keys(PLAYER_PROJECTILE_TEXTURE_KEYS) as CharacterBaseClass[]).forEach((baseClass) => {
+            const textureKey = PLAYER_PROJECTILE_TEXTURE_KEYS[baseClass];
+            const texturePath = PLAYER_PROJECTILE_TEXTURE_PATHS[baseClass];
+            if (!textureKey || !texturePath) {
+                return;
+            }
+
+            this.load.image(textureKey, texturePath);
+        });
     }
 
     create ()
