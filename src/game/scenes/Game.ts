@@ -2,6 +2,9 @@ import { Math as PhaserMath, Scene } from 'phaser';
 import {
     type CharacterData,
     type CharacterBaseClass,
+    type DungeonEventChoice,
+    type DungeonEventDefinition,
+    type DungeonEventEffect,
     type Monster,
     type MonsterCodexData,
     type DungeonState,
@@ -109,6 +112,10 @@ import {
     isBossFloor,
 } from '../systems/dungeon-system';
 import {
+    DUNGEON_EVENT_CHECK_INTERVAL,
+    rollDungeonEvent,
+} from '../systems/dungeon-event-system';
+import {
     saveGame,
     loadGame,
     calculateOfflineRewards,
@@ -129,6 +136,7 @@ import {
 } from '../systems/shop-system';
 import {
     type Consumable,
+    type ConsumableType,
     type ActiveBuff,
     CONSUMABLE_DEFS,
 } from '../models/consumable';
@@ -270,6 +278,7 @@ export class Game extends Scene {
     autoEnterNextFloor = false;
     floorClearCountdownTimer: Phaser.Time.TimerEvent | null = null;
     lastAutoSavedCompletedFloor = 0;
+    dungeonEventCheckTimer = 0;
 
     // 地牢装饰
     floorTiles: Phaser.GameObjects.Rectangle[] = [];
@@ -560,6 +569,10 @@ export class Game extends Scene {
             return;
         }
 
+        if (this.tryTriggerDungeonEvent(dt)) {
+            return;
+        }
+
         if (this.isCurrentFloorCleared()) {
             this.autoSaveCompletedFloor();
             this.enterTown();
@@ -700,10 +713,207 @@ export class Game extends Scene {
 
         if (this.stateTimer >= 1.5) {
             proceedToNextFloor(this.dungeon);
+            this.dungeonEventCheckTimer = 0;
             this.renderDungeon();
             this.spawnMonstersForFloor();
             this.playerSprite.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
         }
+    }
+
+    // ─── 地牢随机事件 ───
+
+    private tryTriggerDungeonEvent(dt: number): boolean {
+        if (this.dungeon.randomEventTriggered || this.lootItems.length > 0 || this.monsterSprites.size === 0) {
+            return false;
+        }
+
+        if (Date.now() - this.dungeon.floorStartTime < 1500) {
+            return false;
+        }
+
+        this.dungeonEventCheckTimer += dt;
+        if (this.dungeonEventCheckTimer < DUNGEON_EVENT_CHECK_INTERVAL) {
+            return false;
+        }
+
+        this.dungeonEventCheckTimer = 0;
+        const event = rollDungeonEvent(this.dungeon.currentFloor);
+        if (!event) {
+            return false;
+        }
+
+        this.dungeon.randomEventTriggered = true;
+        this.showDungeonEventPanel(event);
+        return true;
+    }
+
+    private showDungeonEventPanel(event: DungeonEventDefinition) {
+        this.closeUI();
+        this.isUIOpen = true;
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+
+        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.74).setOrigin(0).setDepth(DEPTH.UI_MODAL).setInteractive();
+        elements.push(bg);
+
+        const panelBg = this.add.rectangle(270, 150, 484, 350, 0x182433).setOrigin(0).setDepth(DEPTH.UI_MODAL + 1).setStrokeStyle(2, 0xf1c40f);
+        elements.push(panelBg);
+
+        const title = addBoundedText(this, {
+            x: 512,
+            y: 180,
+            content: event.title,
+            width: 360,
+            height: 30,
+            minFontSize: 20,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '24px',
+                color: '#f1c40f',
+                fontStyle: 'bold',
+                align: 'center',
+            },
+        }).setDepth(DEPTH.UI_MODAL + 2);
+        elements.push(title);
+
+        const desc = addBoundedText(this, {
+            x: 310,
+            y: 228,
+            content: event.description,
+            width: 404,
+            height: 78,
+            minFontSize: 13,
+            maxLines: 3,
+            lineSpacing: 8,
+            style: {
+                fontSize: '16px',
+                color: '#d6e6f5',
+            },
+        }).setDepth(DEPTH.UI_MODAL + 2);
+        elements.push(desc);
+
+        const effectLines = event.choices.map((choice) => `${choice.label}: ${choice.effects.map((effect) => effect.label).join('，')}`);
+        const effectText = addBoundedText(this, {
+            x: 310,
+            y: 326,
+            content: effectLines.join('\n'),
+            width: 404,
+            height: 68,
+            minFontSize: 11,
+            maxLines: 3,
+            lineSpacing: 6,
+            style: {
+                fontSize: '13px',
+                color: '#bdc3c7',
+            },
+        }).setDepth(DEPTH.UI_MODAL + 2);
+        elements.push(effectText);
+
+        const buttonWidth = event.choices.length > 1 ? 172 : 190;
+        const gap = 24;
+        const totalWidth = event.choices.length * buttonWidth + (event.choices.length - 1) * gap;
+        const startX = 512 - totalWidth / 2;
+
+        event.choices.forEach((choice, index) => {
+            const x = startX + index * (buttonWidth + gap) + buttonWidth / 2;
+            const btn = this.add.rectangle(x, 445, buttonWidth, 42, 0x25435c).setDepth(DEPTH.UI_MODAL + 2).setStrokeStyle(2, 0x5dade2).setInteractive({ useHandCursor: true });
+            const btnText = addBoundedText(this, {
+                x,
+                y: 445,
+                content: choice.label,
+                width: buttonWidth - 20,
+                height: 22,
+                minFontSize: 12,
+                maxLines: 1,
+                originX: 0.5,
+                originY: 0.5,
+                style: {
+                    fontSize: '16px',
+                    color: '#ffffff',
+                    fontStyle: 'bold',
+                    align: 'center',
+                },
+            }).setDepth(DEPTH.UI_MODAL + 3);
+            btn.on('pointerover', () => btn.setFillStyle(0x2e5879));
+            btn.on('pointerout', () => btn.setFillStyle(0x25435c));
+            btn.on('pointerdown', () => this.resolveDungeonEventChoice(event, choice));
+            elements.push(btn, btnText);
+        });
+
+        const panelRect: PanelRect = { x: 270, y: 150, width: 484, height: 350 };
+        this.createManagedPanel(elements, panelRect, panelBg);
+    }
+
+    private resolveDungeonEventChoice(event: DungeonEventDefinition, choice: DungeonEventChoice) {
+        const resultLines: string[] = [];
+        for (const effect of choice.effects) {
+            const line = this.applyDungeonEventEffect(event, effect);
+            if (line) {
+                resultLines.push(line);
+            }
+        }
+
+        this.closeUI();
+        setExploreState(this.dungeon, 'exploring');
+        this.updateHUD();
+        const suffix = resultLines.length > 0 ? `（${resultLines.join('，')}）` : '';
+        this.log(`${choice.resultText}${suffix}`);
+    }
+
+    private applyDungeonEventEffect(event: DungeonEventDefinition, effect: DungeonEventEffect): string | null {
+        const stats = this.getCurrentStats();
+        switch (effect.type) {
+            case 'gold': {
+                const gold = Math.max(1, Math.floor(effect.value + this.dungeon.currentFloor * 4));
+                this.character.gold += gold;
+                this.dungeonRunSummary.gainedGold += gold;
+                return `金币 +${gold}`;
+            }
+            case 'healRatio': {
+                const amount = Math.max(1, Math.floor(stats.maxHp * effect.value));
+                heal(this.character, amount, this.getCurrentStatBonuses());
+                this.showHealNumber(this.playerSprite.x, this.playerSprite.y - 42, amount);
+                return `生命 +${amount}`;
+            }
+            case 'damageRatio': {
+                const damage = Math.max(1, Math.floor(stats.maxHp * effect.value));
+                this.character.baseStats.hp = Math.max(1, this.character.baseStats.hp - damage);
+                this.showDamageNumber(this.playerSprite.x, this.playerSprite.y - 42, damage, false, event.title);
+                return `生命 -${damage}`;
+            }
+            case 'consumable': {
+                if (!effect.consumableType) return null;
+                const count = Math.max(1, Math.floor(effect.value));
+                this.addConsumableReward(effect.consumableType, count);
+                return `${CONSUMABLE_DEFS[effect.consumableType].name} x${count}`;
+            }
+            case 'buff': {
+                if (!effect.buffStat) return null;
+                this.addDungeonEventBuff(event, effect);
+                return effect.label;
+            }
+        }
+    }
+
+    private addDungeonEventBuff(event: DungeonEventDefinition, effect: DungeonEventEffect) {
+        if (!effect.buffStat) return;
+
+        const existing = this.activeBuffs.find((buff) => buff.type === 'elixirLuck' && buff.name === event.title && buff.stat === effect.buffStat);
+        const endTime = Date.now() + effect.value;
+        if (existing) {
+            existing.endTime = endTime;
+            existing.value = effect.buffValue ?? existing.value;
+            return;
+        }
+
+        this.activeBuffs.push({
+            type: 'elixirLuck',
+            name: event.title,
+            stat: effect.buffStat,
+            value: effect.buffValue ?? 20,
+            endTime,
+        });
     }
 
     // ─── 事件处理 ───
@@ -1392,6 +1602,7 @@ export class Game extends Scene {
         this.closeUI();
 
         proceedToNextFloor(this.dungeon);
+        this.dungeonEventCheckTimer = 0;
         this.renderDungeon();
         this.spawnMonstersForFloor();
         this.playerSprite.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
@@ -1727,6 +1938,7 @@ export class Game extends Scene {
 
         this.closeUI();
         this.gameplayPhase = 'dungeon';
+        this.dungeonEventCheckTimer = 0;
         this.resetDungeonRunSummary();
         this.hideTownOverlay();
         this.setWorldVisibility(true);
@@ -3389,13 +3601,33 @@ export class Game extends Scene {
 
     // ─── 消耗品系统 ───
 
+    private addConsumableReward(type: ConsumableType, count = 1) {
+        const def = CONSUMABLE_DEFS[type];
+        let remaining = count;
+
+        while (remaining > 0) {
+            const existing = this.consumables.find(c => c.type === type && c.count < def.maxStack);
+            if (existing) {
+                const addCount = Math.min(remaining, def.maxStack - existing.count);
+                existing.count += addCount;
+                remaining -= addCount;
+            } else {
+                const addCount = Math.min(remaining, def.maxStack);
+                this.consumables.push(createConsumable(type, addCount));
+                remaining -= addCount;
+            }
+        }
+
+        this.dungeonRunSummary.gainedConsumables.set(def.name, (this.dungeonRunSummary.gainedConsumables.get(def.name) ?? 0) + count);
+    }
+
     private rollPotionDrop(monster: Monster) {
         const dropChance = monster.type === 'boss' ? 100 : monster.type === 'rare' ? 40 : monster.type === 'elite' ? 25 : 15;
         if (Math.random() * 100 >= dropChance) return;
 
         // 根据怪物类型和层数决定药水品质
         const floor = this.dungeon.currentFloor;
-        const potionTypes: { type: import('../models/consumable').ConsumableType; weight: number }[] = [];
+        const potionTypes: { type: ConsumableType; weight: number }[] = [];
 
         if (floor <= 5) {
             potionTypes.push({ type: 'healPotionS', weight: 80 });
@@ -3428,16 +3660,8 @@ export class Game extends Scene {
             if (roll <= 0) { selectedType = p.type; break; }
         }
 
-        // 添加到消耗品列表（堆叠）
-        const existing = this.consumables.find(c => c.type === selectedType);
         const def = CONSUMABLE_DEFS[selectedType];
-        if (existing && existing.count < def.maxStack) {
-            existing.count++;
-        } else if (!existing) {
-            this.consumables.push(createConsumable(selectedType));
-        }
-        this.dungeonRunSummary.gainedConsumables.set(def.name, (this.dungeonRunSummary.gainedConsumables.get(def.name) ?? 0) + 1);
-
+        this.addConsumableReward(selectedType);
         this.log(`获得 ${def.name}`);
     }
 

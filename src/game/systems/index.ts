@@ -4,7 +4,8 @@ export { calculateDamage, applyDamageToMonster, calculateIncomingDamage, playerA
 export { shouldDropEquipment, bossDropCount, rollRarity, generateEquipment, randomSlot } from './loot-system';
 export { createInventory, addItem, removeItem, getItem, isFull, count, filterByRarity, sellByRarity, autoDismantleLowestLevelItems, type InventoryData } from './inventory-system';
 export { createEquippedItems, equipItem, unequipItem, getEquipped, getAllEquipped, calculateEquipBonuses, findAvailableRingSlot, type EquippedItems, type EquipBonuses } from './equip-system';
-export { createDungeonState, monstersForFloor, canProceedToNextFloor, proceedToNextFloor, setExploreState, onMonsterKilled, getCurrentZone, isBossFloor } from './dungeon-system';
+export { createDungeonState, monstersForFloor, canProceedToNextFloor, proceedToNextFloor, setExploreState, onMonsterKilled, getCurrentZone, isBossFloor, normalizeDungeonState } from './dungeon-system';
+export { DUNGEON_EVENTS, DUNGEON_EVENT_CHECK_INTERVAL, DUNGEON_EVENT_TRIGGER_CHANCE, rollDungeonEvent } from './dungeon-event-system';
 export { saveGame, loadGame, deleteSave, hasSave, getOfflineDuration, calculateOfflineRewards, AutoSaveManager, type SaveData, type OfflineRewards } from './save-system';
 export { createConsumable, useConsumable, updateBuffs, getBuffBonuses, autoUsePotion } from './consumable-system';
 export { buyConsumable, sellEquipment, sellByRarityFromShop, getShopConsumables, canBuyMore } from './shop-system';

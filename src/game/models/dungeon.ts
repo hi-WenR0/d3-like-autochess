@@ -36,4 +36,5 @@ export interface DungeonState {
     monstersCleared: number;       // 当前层已击杀怪物数
     monstersToClear: number;       // 当前层需击杀怪物数
     floorStartTime: number;        // 进入当前层的时间戳
+    randomEventTriggered: boolean;  // 当前层是否已触发随机事件
 }

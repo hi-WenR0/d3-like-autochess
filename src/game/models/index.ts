@@ -38,6 +38,8 @@ export { INVENTORY_ROWS, INVENTORY_COLS, INVENTORY_CAPACITY } from './inventory'
 export type { DungeonZone, ExploreState, DungeonState } from './dungeon';
 export { DUNGEON_ZONES, getZoneForFloor } from './dungeon';
 
+export type { DungeonEventDefinition, DungeonEventChoice, DungeonEventEffect, DungeonEventEffectType } from './dungeon-event';
+
 export type { ConsumableType, ConsumableCategory, ConsumableDef, Consumable, ActiveBuff } from './consumable';
 export { CONSUMABLE_DEFS, POTION_HEAL_RATIO } from './consumable';
 

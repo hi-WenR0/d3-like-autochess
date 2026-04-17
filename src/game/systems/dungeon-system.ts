@@ -12,6 +12,7 @@ export function createDungeonState(): DungeonState {
         monstersCleared: 0,
         monstersToClear: monstersForFloor(1),
         floorStartTime: Date.now(),
+        randomEventTriggered: false,
     };
 }
 
@@ -32,6 +33,14 @@ export function proceedToNextFloor(state: DungeonState): void {
     state.monstersToClear = monstersForFloor(state.currentFloor);
     state.exploreState = 'exploring';
     state.floorStartTime = Date.now();
+    state.randomEventTriggered = false;
+}
+
+export function normalizeDungeonState(state: DungeonState): DungeonState {
+    return {
+        ...state,
+        randomEventTriggered: state.randomEventTriggered === true,
+    };
 }
 
 /** 设置探索状态 */

@@ -5,6 +5,7 @@ import type { Consumable } from '../models/consumable';
 import type { MonsterCodexData } from '../models/monster';
 import type { EquippedItems } from './equip-system';
 import { normalizeCharacterData } from './character-system';
+import { normalizeDungeonState } from './dungeon-system';
 import { getAllowedClassesForEquipment } from '../models';
 
 const LEGACY_SAVE_KEY = 'darklike_save';
@@ -84,6 +85,7 @@ export function loadGame(slotId = currentSaveSlot): SaveData | null {
         }
         data.version = CURRENT_VERSION;
         data.character = normalizeCharacterData(data.character);
+        data.dungeon = normalizeDungeonState(data.dungeon);
         Object.values(data.equipped).forEach((equipment) => {
             if (!equipment) return;
             equipment.allowedClasses = getAllowedClassesForEquipment(equipment);
