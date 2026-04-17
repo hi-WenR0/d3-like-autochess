@@ -179,9 +179,10 @@ import {
     getMonsterSkills,
     getBossPhases,
 } from '../configs';
-import {
-    getDeathParticleConfig,
-} from '../configs/particle-configs';
+// 死亡粒子效果暂时禁用
+// import {
+//     getDeathParticleConfig,
+// } from '../configs/particle-configs';
 import {
     type Consumable,
     type ConsumableType,
@@ -604,7 +605,9 @@ export class Game extends Scene {
 
         container.setData('monster', monster);
         container.setData('bodySprite', body);
+        container.setData('hpBg', hpBg);
         container.setData('hpBar', hpBar);
+        container.setData('label', label);
         container.setData('maxHp', monster.stats.maxHp);
         container.setData('hpBarWidth', barWidth);
         container.setData('visualState', {
@@ -1128,21 +1131,58 @@ export class Game extends Scene {
         // 药水掉落
         this.rollPotionDrop(monster);
 
-        // 死亡粒子效果
-        this.showDeathEffect(monster);
+        // 死亡粒子效果（暂时禁用）
+        // this.showDeathEffect(monster);
 
+        // 死亡折叠动画
         const sprite = this.monsterSprites.get(monster.id);
         if (sprite) {
-            sprite.destroy();
-            this.monsterSprites.delete(monster.id);
-        }
+            const bodySprite = sprite.getData('bodySprite') as Phaser.GameObjects.Sprite;
+            const hpBar = sprite.getData('hpBar') as Phaser.GameObjects.Rectangle;
+            const hpBg = sprite.getData('hpBg') as Phaser.GameObjects.Rectangle;
+            const label = sprite.getData('label') as Phaser.GameObjects.Text;
 
-        const physicsHost = this.monsterPhysicsBodies.get(monster.id);
-        if (physicsHost) {
-            physicsHost.destroy();
-            this.monsterPhysicsBodies.delete(monster.id);
+            // 隐藏血条和标签
+            if (hpBar) hpBar.setVisible(false);
+            if (hpBg) hpBg.setVisible(false);
+            if (label) label.setVisible(false);
+
+            // 立即销毁物理体
+            const physicsHost = this.monsterPhysicsBodies.get(monster.id);
+            if (physicsHost) {
+                physicsHost.destroy();
+                this.monsterPhysicsBodies.delete(monster.id);
+            }
+            this.nextContactDamageAt.delete(monster.id);
+
+            // 播放折叠动画
+            if (bodySprite) {
+                // 设置原点到底部，实现从下往上折叠
+                bodySprite.setOrigin(0.5, 1);
+
+                this.tweens.add({
+                    targets: bodySprite,
+                    scaleY: 0.1,
+                    duration: 500,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        sprite.destroy();
+                        this.monsterSprites.delete(monster.id);
+                    },
+                });
+            } else {
+                sprite.destroy();
+                this.monsterSprites.delete(monster.id);
+            }
+        } else {
+            // 没有精灵时，直接销毁物理体
+            const physicsHost = this.monsterPhysicsBodies.get(monster.id);
+            if (physicsHost) {
+                physicsHost.destroy();
+                this.monsterPhysicsBodies.delete(monster.id);
+            }
+            this.nextContactDamageAt.delete(monster.id);
         }
-        this.nextContactDamageAt.delete(monster.id);
 
         this.currentMonster = null;
         setExploreState(this.dungeon, 'looting');
@@ -1922,42 +1962,42 @@ export class Game extends Scene {
         });
     }
 
-    /** 怪物死亡粒子效果 */
-    private showDeathEffect(monster: Monster) {
-        const config = getDeathParticleConfig(monster.type);
-
-        // 创建一个简单的白色方块作为粒子纹理
-        const particleKey = 'particle-white';
-        if (!this.textures.exists(particleKey)) {
-            const graphics = this.make.graphics({ x: 0, y: 0 });
-            graphics.fillStyle(0xffffff);
-            graphics.fillRect(0, 0, 4, 4);
-            graphics.generateTexture(particleKey, 4, 4);
-            graphics.destroy();
-        }
-
-        const emitter = this.add.particles(monster.x, monster.y, particleKey, {
-            lifespan: config.lifespan,
-            speed: config.speed as { min: number; max: number },
-            scale: config.scale,
-            quantity: config.quantity,
-            alpha: config.alpha,
-            emitting: true,
-            emitCallback: (particle: Phaser.GameObjects.Particles.Particle) => {
-                if (config.tint) {
-                    const tints = Array.isArray(config.tint) ? config.tint : [config.tint];
-                    particle.tint = tints[Math.floor(Math.random() * tints.length)];
-                }
-            },
-        });
-
-        emitter.setDepth(DEPTH.WORLD_FLOATING_TEXT);
-
-        // 延迟销毁粒子发射器
-        this.time.delayedCall(config.lifespan + 100, () => {
-            emitter.destroy();
-        });
-    }
+    /** 怪物死亡粒子效果（暂时禁用） */
+    // private showDeathEffect(monster: Monster) {
+    //     const config = getDeathParticleConfig(monster.type);
+    //
+    //     // 创建一个简单的白色方块作为粒子纹理
+    //     const particleKey = 'particle-white';
+    //     if (!this.textures.exists(particleKey)) {
+    //         const graphics = this.make.graphics({ x: 0, y: 0 });
+    //         graphics.fillStyle(0xffffff);
+    //         graphics.fillRect(0, 0, 4, 4);
+    //         graphics.generateTexture(particleKey, 4, 4);
+    //         graphics.destroy();
+    //     }
+    //
+    //     const emitter = this.add.particles(monster.x, monster.y, particleKey, {
+    //         lifespan: config.lifespan,
+    //         speed: config.speed as { min: number; max: number },
+    //         scale: config.scale,
+    //         quantity: config.quantity,
+    //         alpha: config.alpha,
+    //         emitting: true,
+    //         emitCallback: (particle: Phaser.GameObjects.Particles.Particle) => {
+    //             if (config.tint) {
+    //                 const tints = Array.isArray(config.tint) ? config.tint : [config.tint];
+    //                 particle.tint = tints[Math.floor(Math.random() * tints.length)];
+    //             }
+    //         },
+    //     });
+    //
+    //     emitter.setDepth(DEPTH.WORLD_FLOATING_TEXT);
+    //
+    //     // 延迟销毁粒子发射器
+    //     this.time.delayedCall(config.lifespan + 100, () => {
+    //         emitter.destroy();
+    //     });
+    // }
 
     /** Boss技能预警圆环 */
     private showSkillWarning(x: number, y: number, radius: number, color: number, duration: number) {
