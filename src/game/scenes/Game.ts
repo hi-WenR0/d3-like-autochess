@@ -55,6 +55,7 @@ import {
     heal,
     isAlive,
     allocateStatPoint,
+    takeDamage,
     type ExternalStatBonuses,
 } from '../systems/character-system';
 import {
@@ -164,6 +165,10 @@ const DUNGEON_HEIGHT = 600;
 const HUD_HEIGHT = 168;
 const PLAYER_SIZE = 24;
 const ENEMY_PERSISTENT_PURSUIT_FACTOR = 0.35;
+const PLAYER_CONTACT_DAMAGE = 2;
+const PLAYER_CONTACT_DAMAGE_INTERVAL_MS = 200;
+const PLAYER_CONTACT_HITBOX_SIZE = 20;
+const ENEMY_CONTACT_PADDING = 4;
 const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
@@ -244,8 +249,10 @@ export class Game extends Scene {
     // 游戏对象
     playerSprite!: Phaser.GameObjects.Container;
     playerBodySprite!: Phaser.GameObjects.Sprite;
+    playerPhysicsHost!: Phaser.GameObjects.Rectangle;
     playerProjectiles: PlayerProjectile[] = [];
     monsterSprites: Map<string, Phaser.GameObjects.Container> = new Map();
+    monsterPhysicsBodies: Map<string, Phaser.GameObjects.Rectangle> = new Map();
     lootItems: { x: number; y: number; equipment: Equipment; sprite: Phaser.GameObjects.Container }[] = [];
     currentMonster: Monster | null = null;
     private playerFacing: PlayerFacing = 'down';
@@ -304,6 +311,8 @@ export class Game extends Scene {
 
     // 自动保存
     autoSaveManager!: AutoSaveManager;
+    enemyCollisionCollider: Phaser.Physics.Arcade.Collider | null = null;
+    nextContactDamageAt: Map<string, number> = new Map();
 
     private panelDragContext: PanelDragContext | null = null;
     private dungeonRunSummary: DungeonRunSummary = this.createDungeonRunSummary();
@@ -434,6 +443,7 @@ export class Game extends Scene {
         }
 
         this.updatePlayerProjectiles(dt);
+        this.handlePlayerEnemyContacts(time);
         this.updateHUD();
     }
 
@@ -499,6 +509,14 @@ export class Game extends Scene {
         this.playerFacing = 'down';
         this.playerFacingLeft = false;
         this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(DEPTH.WORLD_ENTITY);
+        this.playerPhysicsHost = this.add.rectangle(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, PLAYER_CONTACT_HITBOX_SIZE, PLAYER_CONTACT_HITBOX_SIZE, 0xffffff, 0)
+            .setVisible(false)
+            .setDepth(DEPTH.WORLD_TILE);
+        this.physics.add.existing(this.playerPhysicsHost);
+        const physicsBody = this.getArcadeBody(this.playerPhysicsHost);
+        physicsBody.setAllowGravity(false);
+        physicsBody.setImmovable(true);
+        physicsBody.moves = false;
         this.applyPlayerAnimationState('idle');
     }
 
@@ -506,6 +524,7 @@ export class Game extends Scene {
 
     private spawnMonstersForFloor() {
         this.clearPlayerProjectiles();
+        this.clearMonsterPhysicsBodies();
         this.monsterSprites.forEach(s => s.destroy());
         this.monsterSprites.clear();
 
@@ -524,6 +543,8 @@ export class Game extends Scene {
                 this.renderMonster(monster);
             }
         }
+
+        this.setupMonsterCollision();
     }
 
     private renderMonster(monster: Monster) {
@@ -540,6 +561,7 @@ export class Game extends Scene {
 
         const container = this.add.container(monster.x, monster.y, [body, hpBg, hpBar, label]).setDepth(DEPTH.WORLD_ENTITY);
         this.monsterSprites.set(monster.id, container);
+        this.createMonsterPhysicsBody(monster, size);
 
         container.setData('monster', monster);
         container.setData('hpBar', hpBar);
@@ -567,7 +589,7 @@ export class Game extends Scene {
     private updateExploring(dt: number) {
         const stats = this.getCurrentStats();
         this.updateManualMovement(dt, stats.moveSpeed);
-        this.updateEnemyPersistentPursuit(dt);
+        this.updateEnemyPersistentPursuit();
         this.updateMonsterAwareness();
 
         if (this.character.baseStats.hp / stats.maxHp < REST_THRESHOLD) {
@@ -604,7 +626,7 @@ export class Game extends Scene {
     private updateFighting(time: number, dt: number) {
         const stats = this.getCurrentStats();
         this.updateManualMovement(dt, stats.moveSpeed);
-        this.updateEnemyPersistentPursuit(dt);
+        this.updateEnemyPersistentPursuit();
         this.updateMonsterAwareness();
         this.currentMonster = this.pickCombatTarget();
         if (!this.currentMonster) {
@@ -681,7 +703,7 @@ export class Game extends Scene {
         const dt = this.game.loop.delta / 1000;
         const stats = this.getCurrentStats();
         this.updateManualMovement(dt, stats.moveSpeed);
-        this.updateEnemyPersistentPursuit(dt);
+        this.updateEnemyPersistentPursuit();
         this.updateMonsterAwareness();
         this.stateTimer += this.game.loop.delta;
 
@@ -716,7 +738,7 @@ export class Game extends Scene {
     }
 
     private updateResting(dt: number) {
-        this.updateEnemyPersistentPursuit(dt);
+        this.updateEnemyPersistentPursuit();
         this.updateMonsterAwareness();
         const stats = this.getCurrentStats();
         const recoverAmount = Math.floor(stats.maxHp * REST_RECOVERY_RATE * dt);
@@ -736,6 +758,7 @@ export class Game extends Scene {
             this.renderDungeon();
             this.spawnMonstersForFloor();
             this.playerSprite.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
+            this.playerPhysicsHost.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
         }
     }
 
@@ -974,6 +997,13 @@ export class Game extends Scene {
             this.monsterSprites.delete(monster.id);
         }
 
+        const physicsHost = this.monsterPhysicsBodies.get(monster.id);
+        if (physicsHost) {
+            physicsHost.destroy();
+            this.monsterPhysicsBodies.delete(monster.id);
+        }
+        this.nextContactDamageAt.delete(monster.id);
+
         this.currentMonster = null;
         setExploreState(this.dungeon, 'looting');
         this.stateTimer = 0;
@@ -1084,21 +1114,112 @@ export class Game extends Scene {
         return nearest;
     }
 
-    private updateEnemyPersistentPursuit(dt: number) {
+    private getArcadeBody(gameObject: Phaser.GameObjects.Rectangle): Phaser.Physics.Arcade.Body {
+        return gameObject.body as Phaser.Physics.Arcade.Body;
+    }
+
+    private clearMonsterPhysicsBodies() {
+        if (this.enemyCollisionCollider) {
+            this.enemyCollisionCollider.destroy();
+            this.enemyCollisionCollider = null;
+        }
+
+        this.monsterPhysicsBodies.forEach((body) => body.destroy());
+        this.monsterPhysicsBodies.clear();
+        this.nextContactDamageAt.clear();
+    }
+
+    private createMonsterPhysicsBody(monster: Monster, visualSize: number) {
+        const hitboxSize = Math.max(12, visualSize - ENEMY_CONTACT_PADDING);
+        const host = this.add.rectangle(monster.x, monster.y, hitboxSize, hitboxSize, 0xffffff, 0)
+            .setVisible(false)
+            .setDepth(DEPTH.WORLD_TILE);
+        this.physics.add.existing(host);
+
+        const body = this.getArcadeBody(host);
+        body.setAllowGravity(false);
+        body.setCollideWorldBounds(true);
+        body.setImmovable(false);
+        body.setMaxVelocity(monster.stats.moveSpeed, monster.stats.moveSpeed);
+
+        this.monsterPhysicsBodies.set(monster.id, host);
+    }
+
+    private setupMonsterCollision() {
+        if (this.enemyCollisionCollider) {
+            this.enemyCollisionCollider.destroy();
+        }
+
+        const hosts = Array.from(this.monsterPhysicsBodies.values());
+        if (hosts.length > 1) {
+            this.enemyCollisionCollider = this.physics.add.collider(hosts, hosts);
+        } else {
+            this.enemyCollisionCollider = null;
+        }
+    }
+
+    private syncMonsterDataFromBodies() {
+        this.monsterPhysicsBodies.forEach((host, monsterId) => {
+            const monsterContainer = this.monsterSprites.get(monsterId);
+            if (!monsterContainer) {
+                return;
+            }
+
+            const monster = monsterContainer.getData('monster') as Monster;
+            monster.x = host.x;
+            monster.y = host.y;
+            monsterContainer.setPosition(host.x, host.y);
+        });
+    }
+
+    private updateEnemyPersistentPursuit() {
+        this.syncMonsterDataFromBodies();
         this.monsterSprites.forEach((container) => {
             const monster = container.getData('monster') as Monster;
-            const monsterStep = monster.stats.moveSpeed * ENEMY_PERSISTENT_PURSUIT_FACTOR * dt;
-            const monsterNext = this.computePersistentPursuitPosition(
-                monster.x,
-                monster.y,
-                this.playerSprite.x,
-                this.playerSprite.y,
-                monsterStep,
-            );
-            monster.x = monsterNext.x;
-            monster.y = monsterNext.y;
+            const host = this.monsterPhysicsBodies.get(monster.id);
+            if (!host) {
+                return;
+            }
 
-            container.setPosition(monsterNext.x, monsterNext.y);
+            const body = this.getArcadeBody(host);
+            const angleToTarget = PhaserMath.Angle.Between(host.x, host.y, this.playerSprite.x, this.playerSprite.y);
+            const speed = monster.stats.moveSpeed * ENEMY_PERSISTENT_PURSUIT_FACTOR;
+            const distance = PhaserMath.Distance.Between(host.x, host.y, this.playerSprite.x, this.playerSprite.y);
+            const velocityScale = distance <= 2 ? 0 : Math.min(1, distance / 24);
+
+            body.setVelocity(
+                Math.cos(angleToTarget) * speed * velocityScale,
+                Math.sin(angleToTarget) * speed * velocityScale,
+            );
+        });
+    }
+
+    private handlePlayerEnemyContacts(time: number) {
+        this.monsterPhysicsBodies.forEach((host, monsterId) => {
+            const monsterContainer = this.monsterSprites.get(monsterId);
+            if (!monsterContainer) {
+                this.nextContactDamageAt.delete(monsterId);
+                return;
+            }
+
+            const isOverlapping = this.physics.overlap(this.playerPhysicsHost, host);
+            if (!isOverlapping) {
+                this.nextContactDamageAt.delete(monsterId);
+                return;
+            }
+
+            const nextDamageAt = this.nextContactDamageAt.get(monsterId) ?? 0;
+            if (time < nextDamageAt) {
+                return;
+            }
+
+            const playerDied = takeDamage(this.character, PLAYER_CONTACT_DAMAGE, this.getCurrentStatBonuses());
+            this.showDamageNumber(this.playerSprite.x, this.playerSprite.y - 42, PLAYER_CONTACT_DAMAGE, false, ' 接触');
+            this.nextContactDamageAt.set(monsterId, time + PLAYER_CONTACT_DAMAGE_INTERVAL_MS);
+
+            if (playerDied) {
+                this.onPlayerDeath();
+            }
         });
     }
 
@@ -1322,6 +1443,7 @@ export class Game extends Scene {
         }
 
         this.playerSprite.setPosition(nextX, nextY);
+        this.playerPhysicsHost.setPosition(nextX, nextY);
         return true;
     }
 
@@ -1461,25 +1583,6 @@ export class Game extends Scene {
         }
 
         sprite.setAlpha(monster.alertState === 'alerted' ? 1 : 0.82);
-    }
-
-    private computePersistentPursuitPosition(
-        sourceX: number,
-        sourceY: number,
-        targetX: number,
-        targetY: number,
-        step: number,
-    ): { x: number; y: number } {
-        const distance = PhaserMath.Distance.Between(sourceX, sourceY, targetX, targetY);
-        if (distance <= 0.001 || step <= 0) {
-            return { x: sourceX, y: sourceY };
-        }
-
-        const angleToTarget = PhaserMath.Angle.Between(sourceX, sourceY, targetX, targetY);
-        const clampedStep = Math.min(step, distance);
-        const nextX = PhaserMath.Clamp(sourceX + Math.cos(angleToTarget) * clampedStep, 30, DUNGEON_WIDTH - 30);
-        const nextY = PhaserMath.Clamp(sourceY + Math.sin(angleToTarget) * clampedStep, 30, DUNGEON_HEIGHT - 30);
-        return { x: nextX, y: nextY };
     }
 
     private showDamageNumber(x: number, y: number, damage: number, isCrit: boolean, suffix = '') {
@@ -1707,6 +1810,7 @@ export class Game extends Scene {
         this.renderDungeon();
         this.spawnMonstersForFloor();
         this.playerSprite.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
+        this.playerPhysicsHost.setPosition(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2);
         setExploreState(this.dungeon, 'exploring');
         this.enterDungeon();
     }
