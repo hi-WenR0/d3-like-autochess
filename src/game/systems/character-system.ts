@@ -46,6 +46,8 @@ export function createCharacter(name: string, baseClass: CharacterBaseClass = 'b
         baseStats: { ...classDef.startingStats },
         gold: 0,
         currentFloor: 1,
+        purchasedAbilities: [],
+        movementMode: 'manual',
     };
 }
 
@@ -67,6 +69,8 @@ export function normalizeCharacterData(char: CharacterData): CharacterData {
     };
     normalized.skillProgress = char.skillProgress ?? {};
     normalized.skillLoadout = normalizeSkillLoadout(normalized);
+    normalized.purchasedAbilities = char.purchasedAbilities ?? [];
+    normalized.movementMode = char.movementMode ?? 'manual';
     return normalized;
 }
 

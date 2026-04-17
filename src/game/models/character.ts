@@ -96,6 +96,8 @@ export interface CharacterData {
     baseStats: CharacterStats;
     gold: number;
     currentFloor: number;   // 当前地牢层数 (1-based)
+    purchasedAbilities: string[];  // 已购买的能力ID列表
+    movementMode: 'auto' | 'manual';  // 移动模式
 }
 
 /** 玩家手动分配的属性点 */

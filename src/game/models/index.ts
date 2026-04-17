@@ -76,3 +76,6 @@ export {
     getSkillCritRateBonusWithLevel,
     getSkillCritDamageBonusWithLevel,
 } from './skill';
+
+export type { MerchantItem } from './merchant';
+export { MERCHANT_ITEMS } from './merchant';

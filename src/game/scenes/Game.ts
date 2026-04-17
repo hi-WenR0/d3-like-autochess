@@ -38,6 +38,7 @@ import {
     EQUIP_SLOTS,
     INVENTORY_CAPACITY,
     sellPrice,
+    MERCHANT_ITEMS,
 } from '../models';
 import {
     type EquippedItems,
@@ -616,7 +617,7 @@ export class Game extends Scene {
 
     private updateExploring(dt: number) {
         const stats = this.getCurrentStats();
-        this.updateManualMovement(dt, stats.moveSpeed);
+        this.updateMovement(dt, stats.moveSpeed);
         this.updateEnemyPersistentPursuit();
         this.updateMonsterAwareness();
 
@@ -653,7 +654,7 @@ export class Game extends Scene {
 
     private updateFighting(time: number, dt: number) {
         const stats = this.getCurrentStats();
-        this.updateManualMovement(dt, stats.moveSpeed);
+        this.updateMovement(dt, stats.moveSpeed);
         this.updateEnemyPersistentPursuit();
         this.updateMonsterAwareness();
         this.currentMonster = this.pickCombatTarget();
@@ -730,7 +731,7 @@ export class Game extends Scene {
     private updateLooting() {
         const dt = this.game.loop.delta / 1000;
         const stats = this.getCurrentStats();
-        this.updateManualMovement(dt, stats.moveSpeed);
+        this.updateMovement(dt, stats.moveSpeed);
         this.updateEnemyPersistentPursuit();
         this.updateMonsterAwareness();
         this.stateTimer += this.game.loop.delta;
@@ -1420,6 +1421,114 @@ export class Game extends Scene {
             default:
                 return null;
         }
+    }
+
+    private updateMovement(dt: number, moveSpeed: number) {
+        if (this.character.movementMode === 'manual') {
+            this.updateManualMovement(dt, moveSpeed);
+        } else {
+            this.updateAutoMovement(dt, moveSpeed);
+        }
+    }
+
+    private updateAutoMovement(dt: number, moveSpeed: number) {
+        // 只有在地牢状态下才自动移动
+        if (this.gameplayPhase !== 'dungeon') {
+            if (!this.isPlayerAttackAnimationLocked()) {
+                this.applyPlayerAnimationState('idle');
+            }
+            return;
+        }
+
+        // 找到最近的存活怪物
+        let targetX: number;
+        let targetY: number;
+
+        let nearestDistance = Infinity;
+        let nearestMonsterId: string | null = null;
+
+        this.monsterSprites.forEach((container) => {
+            const monster = container.getData('monster') as Monster;
+            if (monster.stats.hp <= 0) return;
+
+            const dx = container.x - this.playerSprite.x;
+            const dy = container.y - this.playerSprite.y;
+            const distance = Math.hypot(dx, dy);
+
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestMonsterId = monster.id;
+            }
+        });
+
+        if (nearestMonsterId) {
+            // 朝最近的怪物移动
+            const container = this.monsterSprites.get(nearestMonsterId);
+            if (container) {
+                targetX = container.x;
+                targetY = container.y;
+            } else {
+                // 没有目标，保持原地
+                if (!this.isPlayerAttackAnimationLocked()) {
+                    this.applyPlayerAnimationState('idle');
+                }
+                return;
+            }
+        } else {
+            // 无怪物时，随机探索
+            const randomAngle = Math.random() * Math.PI * 2;
+            const randomDistance = 100 + Math.random() * 200;
+
+            targetX = this.playerSprite.x + Math.cos(randomAngle) * randomDistance;
+            targetY = this.playerSprite.y + Math.sin(randomAngle) * randomDistance;
+
+            // 限制在地图范围内
+            targetX = Math.max(30, Math.min(DUNGEON_WIDTH - 30, targetX));
+            targetY = Math.max(30, Math.min(DUNGEON_HEIGHT - 30, targetY));
+        }
+
+        // 计算移动方向
+        const dx = targetX - this.playerSprite.x;
+        const dy = targetY - this.playerSprite.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance < 1) {
+            if (!this.isPlayerAttackAnimationLocked()) {
+                this.applyPlayerAnimationState('idle');
+            }
+            return;
+        }
+
+        const direction = {
+            x: dx / distance,
+            y: dy / distance,
+        };
+
+        const step = Math.max(0, moveSpeed) * dt;
+        let nextX = this.playerSprite.x + direction.x * step;
+        let nextY = this.playerSprite.y + direction.y * step;
+
+        // 限制在地图范围内
+        nextX = PhaserMath.Clamp(nextX, 30, DUNGEON_WIDTH - 30);
+        nextY = PhaserMath.Clamp(nextY, 30, DUNGEON_HEIGHT - 30);
+
+        if (nextX === this.playerSprite.x && nextY === this.playerSprite.y) {
+            if (!this.isPlayerAttackAnimationLocked()) {
+                this.applyPlayerAnimationState('idle');
+            }
+            return;
+        }
+
+        this.playerSprite.setPosition(nextX, nextY);
+        this.playerPhysicsHost.setPosition(nextX, nextY);
+
+        if (this.isPlayerAttackAnimationLocked()) {
+            return;
+        }
+
+        // 更新朝向和动画
+        this.updatePlayerFacingFromMovement(direction);
+        this.applyPlayerAnimationState('walk');
     }
 
     private updateManualMovement(dt: number, moveSpeed: number) {
@@ -2190,8 +2299,8 @@ export class Game extends Scene {
         enterBtnBg.on('pointerdown', () => this.enterDungeon());
         elements.push(enterBtnBg, enterBtnText);
 
-        const codexBtnBg = this.add.rectangle(512, 452, 180, 34, 0x25435c).setStrokeStyle(2, 0x5dade2).setInteractive({ useHandCursor: true });
-        const codexBtnText = this.add.text(512, 452, '怪物图鉴', {
+        const codexBtnBg = this.add.rectangle(412, 452, 160, 34, 0x25435c).setStrokeStyle(2, 0x5dade2).setInteractive({ useHandCursor: true });
+        const codexBtnText = this.add.text(412, 452, '怪物图鉴', {
             fontSize: '15px',
             color: '#d6eaf8',
             fontStyle: 'bold',
@@ -2200,6 +2309,17 @@ export class Game extends Scene {
         codexBtnBg.on('pointerout', () => codexBtnBg.setFillStyle(0x25435c));
         codexBtnBg.on('pointerdown', () => this.openMonsterCodexPanel());
         elements.push(codexBtnBg, codexBtnText);
+
+        const settingsBtnBg = this.add.rectangle(612, 452, 160, 34, 0x25435c).setStrokeStyle(2, 0x9b59b6).setInteractive({ useHandCursor: true });
+        const settingsBtnText = this.add.text(612, 452, '移动设置', {
+            fontSize: '15px',
+            color: '#d6eaf8',
+            fontStyle: 'bold',
+        }).setOrigin(0.5);
+        settingsBtnBg.on('pointerover', () => settingsBtnBg.setFillStyle(0x2e5879));
+        settingsBtnBg.on('pointerout', () => settingsBtnBg.setFillStyle(0x25435c));
+        settingsBtnBg.on('pointerdown', () => this.openMovementSettingsPanel());
+        elements.push(settingsBtnBg, settingsBtnText);
 
         this.townOverlay = this.add.container(0, 0, elements).setDepth(DEPTH.WORLD_FLOATING_TEXT + 5);
     }
@@ -4348,6 +4468,45 @@ export class Game extends Scene {
             cy += 52;
         }
 
+        // 能力商店区
+        cy += 20;
+        const abilityTitle = this.add.text(230, cy, '能力商店:', { fontSize: '15px', color: '#9b59b6' }).setDepth(202);
+        elements.push(abilityTitle);
+        cy += 30;
+
+        for (const item of MERCHANT_ITEMS) {
+            const owned = this.character.purchasedAbilities.includes(item.id);
+            const canBuy = !owned && this.character.gold >= item.price;
+
+            const rowBg = this.add.rectangle(230, cy, 564, 45, 0x2a2a3e).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x4a4a6a);
+            elements.push(rowBg);
+
+            const dot = this.add.rectangle(245, cy + 12, 8, 8, 0x9b59b6).setDepth(203);
+            elements.push(dot);
+
+            const nameText = this.add.text(260, cy + 5, item.label, { fontSize: '13px', color: '#ffffff' }).setDepth(203);
+            elements.push(nameText);
+
+            const descText = this.add.text(260, cy + 24, item.description, { fontSize: '10px', color: '#95a5a6' }).setDepth(203);
+            elements.push(descText);
+
+            const statusText = this.add.text(630, cy + 5, owned ? '已拥有' : `${item.price}G`, { fontSize: '11px', color: owned ? '#2ecc71' : '#f1c40f' }).setDepth(203);
+            elements.push(statusText);
+
+            const actionBtn = this.add.text(690, cy + 10, owned ? '[已解锁]' : '[购买]', { fontSize: '12px', color: canBuy ? '#9b59b6' : '#555555' }).setDepth(203).setInteractive();
+            if (canBuy) {
+                actionBtn.on('pointerdown', () => {
+                    this.character.gold -= item.price;
+                    this.character.purchasedAbilities.push(item.id);
+                    this.log(`成功购买 ${item.label}`);
+                    this.openShopPanel(); // 刷新
+                });
+            }
+            elements.push(actionBtn);
+
+            cy += 52;
+        }
+
         // 装备出售区
         cy += 20;
         const sellTitle = this.add.text(230, cy, '快捷出售:', { fontSize: '15px', color: '#e74c3c' }).setDepth(202);
@@ -4379,5 +4538,69 @@ export class Game extends Scene {
         const panelRect: PanelRect = { x: 200, y: 40, width: 624, height: 680 };
         this.createManagedPanel(elements, panelRect, panelBg);
 
+    }
+
+    private openMovementSettingsPanel() {
+        if (this.gameplayPhase !== 'town') {
+            this.log('请在主城内设置移动模式');
+            return;
+        }
+
+        this.closeUI();
+        this.isUIOpen = true;
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+
+        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.7).setOrigin(0).setDepth(200).setInteractive();
+        elements.push(bg);
+
+        const panelBg = this.add.rectangle(300, 200, 424, 280, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x9b59b6);
+        elements.push(panelBg);
+
+        const title = this.add.text(512, 230, '移动设置', { fontSize: '20px', color: '#9b59b6' }).setOrigin(0.5).setDepth(202);
+        elements.push(title);
+
+        const closeBtn = this.add.text(700, 215, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
+        closeBtn.on('pointerdown', () => this.closeUI());
+        elements.push(closeBtn);
+
+        const hasAutoMovement = this.character.purchasedAbilities.includes('auto-movement');
+        const currentMode = this.character.movementMode;
+
+        // 手动移动选项
+        const manualBtnBg = this.add.rectangle(320, 290, 380, 50, currentMode === 'manual' ? 0x2ecc71 : 0x2a2a3e)
+            .setOrigin(0).setDepth(202).setStrokeStyle(2, currentMode === 'manual' ? 0x27ae60 : 0x4a4a6a).setInteractive({ useHandCursor: true });
+        const manualBtnText = this.add.text(510, 315, '手动移动（方向键控制）', { fontSize: '14px', color: '#ffffff' }).setOrigin(0.5).setDepth(203);
+        elements.push(manualBtnBg, manualBtnText);
+
+        manualBtnBg.on('pointerdown', () => {
+            this.character.movementMode = 'manual';
+            this.log('已切换为手动移动模式');
+            this.closeUI();
+        });
+
+        // 自动移动选项
+        const autoBtnBg = this.add.rectangle(320, 360, 380, 50, currentMode === 'auto' ? 0x2ecc71 : 0x2a2a3e)
+            .setOrigin(0).setDepth(202).setStrokeStyle(2, currentMode === 'auto' ? 0x27ae60 : 0x4a4a6a);
+        const autoBtnText = this.add.text(510, 385, hasAutoMovement ? '自动移动（自动探索）' : '自动移动（未解锁）', { fontSize: '14px', color: hasAutoMovement ? '#ffffff' : '#7f8c8d' }).setOrigin(0.5).setDepth(203);
+        elements.push(autoBtnBg, autoBtnText);
+
+        if (hasAutoMovement) {
+            autoBtnBg.setInteractive({ useHandCursor: true });
+            autoBtnBg.on('pointerdown', () => {
+                this.character.movementMode = 'auto';
+                this.log('已切换为自动移动模式');
+                this.closeUI();
+            });
+        }
+
+        // 提示文本
+        if (!hasAutoMovement) {
+            const hint = this.add.text(512, 430, '提示：在商店购买"自动移动能力"后解锁', { fontSize: '12px', color: '#f39c12' }).setOrigin(0.5).setDepth(202);
+            elements.push(hint);
+        }
+
+        const panelRect: PanelRect = { x: 300, y: 200, width: 424, height: 280 };
+        this.createManagedPanel(elements, panelRect, panelBg);
     }
 }
