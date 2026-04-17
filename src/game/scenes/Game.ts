@@ -272,6 +272,7 @@ export class Game extends Scene {
     hpText!: Phaser.GameObjects.Text;
     floorText!: Phaser.GameObjects.Text;
     goldText!: Phaser.GameObjects.Text;
+    inventoryUsageText!: Phaser.GameObjects.Text;
     stateText!: Phaser.GameObjects.Text;
     levelText!: Phaser.GameObjects.Text;
     combatLog!: Phaser.GameObjects.Text;
@@ -2069,7 +2070,8 @@ export class Game extends Scene {
 
         // 左侧信息
         this.floorText = this.add.text(250, hudY + 10, '', { fontSize: '13px', color: '#f39c12', fontStyle: 'bold' }).setDepth(DEPTH.HUD_INFO + 2);
-        this.goldText = this.add.text(250, hudY + 28, '', { fontSize: '12px', color: '#f1c40f' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.goldText = this.add.text(250, hudY + 26, '', { fontSize: '12px', color: '#f1c40f' }).setDepth(DEPTH.HUD_INFO + 2);
+        this.inventoryUsageText = this.add.text(250, hudY + 42, '', { fontSize: '11px', color: '#ff69b4' }).setDepth(DEPTH.HUD_INFO + 2);
         this.levelText = this.add.text(420, hudY + 10, '', { fontSize: '12px', color: '#2ecc71' }).setDepth(DEPTH.HUD_INFO + 2);
         this.stateText = this.add.text(420, hudY + 28, '', { fontSize: '11px', color: '#95a5a6' }).setDepth(DEPTH.HUD_INFO + 2);
 
@@ -2080,10 +2082,10 @@ export class Game extends Scene {
         this.buffText = this.add.text(770, hudY + 28, '', { fontSize: '9px', color: '#e6cc80' }).setDepth(DEPTH.HUD_INFO + 2);
 
         // 战斗日志
-        this.combatLog = this.add.text(20, hudY + 45, '', {
+        this.combatLog = this.add.text(20, hudY + 60, '', {
             fontSize: '11px', color: '#8e8e9e', wordWrap: { width: DUNGEON_WIDTH - 40 }, lineSpacing: 2,
         }).setDepth(DEPTH.HUD_INFO + 2);
-        this.skillStatusText = this.add.text(20, hudY + 86, '', {
+        this.skillStatusText = this.add.text(20, hudY + 101, '', {
             fontSize: '10px', color: '#5dade2', wordWrap: { width: DUNGEON_WIDTH - 40 }, lineSpacing: 2,
         }).setDepth(DEPTH.HUD_INFO + 2);
 
@@ -2139,6 +2141,7 @@ export class Game extends Scene {
         const zone = getZoneForFloor(this.dungeon.currentFloor);
         this.floorText.setText(this.gameplayPhase === 'town' ? '主城 安全区' : `${zone.name} ${this.dungeon.currentFloor}F`);
         this.goldText.setText(`金币: ${this.character.gold}`);
+        this.inventoryUsageText.setText(`背包: ${this.inventory.items.length}/${INVENTORY_CAPACITY}`);
         this.levelText.setText(`Lv.${this.character.level}  EXP: ${this.character.exp}/${this.character.expToNextLevel}`);
 
         const stateLabels: Record<ExploreState, string> = {
