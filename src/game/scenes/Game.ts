@@ -13,6 +13,8 @@ import {
     type EquipSlot,
     type WearableSlot,
     type Rarity,
+    type SkillDefinition,
+    type SkillSlotType,
     type CombatStyle,
     type MovementStrategy,
     getZoneForFloor,
@@ -23,6 +25,13 @@ import {
     getCombatStyleProfile,
     getAllowedClassesForEquipment,
     getActiveSkillForCharacter,
+    getAutoCastSkills,
+    getEquippedSkillForSlot,
+    getSkillPassiveBonuses,
+    canEquipSkill,
+    equipSkill,
+    isSkillUnlocked,
+    CLASS_SKILLS,
     EQUIP_SLOTS,
     INVENTORY_CAPACITY,
     sellPrice,
@@ -1546,7 +1555,7 @@ export class Game extends Scene {
     }
 
     private tryUseClassSkill(time: number, monster: Monster, stats: ReturnType<Game['getCurrentStats']>): boolean {
-        const skill = getActiveSkillForCharacter(this.character);
+        const skill = getAutoCastSkills(this.character).find((candidate) => this.canAutoCastSkill(candidate, monster, stats));
         if (!skill) {
             return false;
         }
@@ -1573,6 +1582,38 @@ export class Game extends Scene {
         }
 
         return true;
+    }
+
+    private canAutoCastSkill(skill: SkillDefinition, monster: Monster, stats: ReturnType<Game['getCurrentStats']>): boolean {
+        return skill.conditions.every((condition) => {
+            switch (condition.type) {
+                case 'always':
+                    return true;
+                case 'targetHpBelow':
+                    return monster.stats.maxHp > 0 && monster.stats.hp / monster.stats.maxHp <= condition.ratio;
+                case 'playerHpBelow':
+                    return stats.maxHp > 0 && this.character.baseStats.hp / stats.maxHp <= condition.ratio;
+                case 'enemyCountNearby':
+                    return this.countMonstersNearPlayer(condition.radius) >= condition.count;
+                case 'targetInRange':
+                    return PhaserMath.Distance.Between(this.playerSprite.x, this.playerSprite.y, monster.x, monster.y) <= condition.range;
+                case 'missingBuff':
+                    return !this.activeBuffs.some((buff) => buff.name === condition.buffId);
+            }
+        });
+    }
+
+    private countMonstersNearPlayer(radius: number): number {
+        let count = 0;
+        this.monsterSprites.forEach((container) => {
+            const monster = container.getData('monster') as Monster;
+            if (monster.stats.hp <= 0) return;
+            const distance = PhaserMath.Distance.Between(this.playerSprite.x, this.playerSprite.y, monster.x, monster.y);
+            if (distance <= radius) {
+                count += 1;
+            }
+        });
+        return count;
     }
 
     private createDungeonRunSummary(): DungeonRunSummary {
@@ -1995,6 +2036,7 @@ export class Game extends Scene {
             { label: '背包', color: '#3498db', action: () => this.openInventoryPanel() },
             { label: '装备', color: '#2ecc71', action: () => this.openEquipPanel() },
             { label: '属性', color: '#9b59b6', action: () => this.openStatsPanel() },
+            { label: '技能', color: '#5dade2', action: () => this.openSkillLoadoutPanel() },
             { label: '消耗品', color: '#e67e22', action: () => this.openConsumablePanel() },
             { label: '商店', color: '#f1c40f', action: () => this.openShopPanel() },
             { label: '图鉴', color: '#5dade2', action: () => this.openMonsterCodexPanel() },
@@ -2537,14 +2579,15 @@ export class Game extends Scene {
         const equipBonuses = calculateEquipBonuses(this.equipped);
         const buffBonuses = getBuffBonuses(this.activeBuffs);
         const specializationBonuses = getSpecializationBonuses(this.character);
+        const skillBonuses = getSkillPassiveBonuses(this.character);
         return {
-            hp: equipBonuses.hp + (specializationBonuses.hp ?? 0),
-            atk: equipBonuses.atk + buffBonuses.atk + (specializationBonuses.atk ?? 0),
-            def: equipBonuses.def + buffBonuses.def + (specializationBonuses.def ?? 0),
+            hp: equipBonuses.hp + (specializationBonuses.hp ?? 0) + skillBonuses.hp,
+            atk: equipBonuses.atk + buffBonuses.atk + (specializationBonuses.atk ?? 0) + skillBonuses.atk,
+            def: equipBonuses.def + buffBonuses.def + (specializationBonuses.def ?? 0) + skillBonuses.def,
             attackSpeedPct: equipBonuses.attackSpeed + buffBonuses.attackSpeed + (specializationBonuses.attackSpeedPct ?? 0),
-            critRate: equipBonuses.critRate + buffBonuses.critRate + (specializationBonuses.critRate ?? 0),
-            critDamage: equipBonuses.critDamage + (specializationBonuses.critDamage ?? 0),
-            moveSpeed: equipBonuses.moveSpeed + (specializationBonuses.moveSpeed ?? 0),
+            critRate: equipBonuses.critRate + buffBonuses.critRate + (specializationBonuses.critRate ?? 0) + skillBonuses.critRate,
+            critDamage: equipBonuses.critDamage + (specializationBonuses.critDamage ?? 0) + skillBonuses.critDamage,
+            moveSpeed: equipBonuses.moveSpeed + (specializationBonuses.moveSpeed ?? 0) + skillBonuses.moveSpeed,
         };
     }
 
@@ -2561,6 +2604,241 @@ export class Game extends Scene {
             return ring1.level <= ring2.level ? ring1 : ring2;
         }
         return getEquipped(this.equipped, equipment.slot as EquipSlot);
+    }
+
+    // ─── 技能配置面板 ───
+
+    private openSkillLoadoutPanel() {
+        this.closeUI();
+        this.isUIOpen = true;
+
+        const elements: Phaser.GameObjects.GameObject[] = [];
+        const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
+        const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
+
+        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.72).setOrigin(0).setDepth(200).setInteractive();
+        elements.push(bg);
+
+        const panelBg = this.add.rectangle(120, 58, 784, 632, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x4a4a6a);
+        elements.push(panelBg);
+
+        const title = addBoundedText(this, {
+            x: 512,
+            y: 82,
+            content: `${classDef.label} 技能配置`,
+            width: 420,
+            height: 28,
+            minFontSize: 20,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '24px',
+                color: classDef.color,
+                fontStyle: 'bold',
+                align: 'center',
+            },
+        }).setDepth(202);
+        const subtitle = addBoundedText(this, {
+            x: 512,
+            y: 116,
+            content: `全自动释放 · ${specializationDef ? `当前专精：${specializationDef.label}` : '未转职'}`,
+            width: 460,
+            height: 20,
+            minFontSize: 11,
+            maxLines: 1,
+            originX: 0.5,
+            style: {
+                fontSize: '13px',
+                color: '#bdc3c7',
+                align: 'center',
+            },
+        }).setDepth(202);
+        const closeBtn = this.add.text(870, 74, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
+        closeBtn.on('pointerdown', () => this.closeUI());
+        elements.push(title, subtitle, closeBtn);
+
+        const slots: SkillSlotType[] = ['basicActive', 'specializationActive', 'passive1', 'passive2', 'trigger'];
+        const slotTitle = this.add.text(156, 154, '当前搭配', { fontSize: '16px', color: '#f1c40f', fontStyle: 'bold' }).setDepth(202);
+        elements.push(slotTitle);
+
+        let y = 188;
+        for (const slot of slots) {
+            const skill = getEquippedSkillForSlot(this.character, slot);
+            const slotBg = this.add.rectangle(150, y - 8, 300, 52, 0x17283a).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x34495e);
+            const slotLabel = this.add.text(166, y, this.skillSlotLabel(slot), { fontSize: '12px', color: '#95a5a6' }).setDepth(203);
+            const skillLabel = addBoundedText(this, {
+                x: 260,
+                y,
+                content: skill ? skill.label : '未装备',
+                width: 168,
+                height: 18,
+                minFontSize: 10,
+                maxLines: 1,
+                style: {
+                    fontSize: '13px',
+                    color: skill ? '#ffffff' : '#66707d',
+                    fontStyle: skill ? 'bold' : 'normal',
+                },
+            }).setDepth(203);
+            const desc = addBoundedText(this, {
+                x: 166,
+                y: y + 22,
+                content: skill ? `${this.skillTypeLabel(skill)} · ${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)}` : '从右侧已解锁技能中选择装备',
+                width: 260,
+                height: 18,
+                minFontSize: 9,
+                maxLines: 1,
+                style: {
+                    fontSize: '10px',
+                    color: '#bdc3c7',
+                },
+            }).setDepth(203);
+            elements.push(slotBg, slotLabel, skillLabel, desc);
+            y += 64;
+        }
+
+        const poolTitle = this.add.text(486, 154, '技能池', { fontSize: '16px', color: '#f1c40f', fontStyle: 'bold' }).setDepth(202);
+        elements.push(poolTitle);
+
+        const relevantSkills = CLASS_SKILLS
+            .filter((skill) => skill.requiredClass === this.character.baseClass)
+            .filter((skill) => skill.requiredSpecialization === undefined || skill.requiredSpecialization === this.character.specialization)
+            .sort((a, b) => a.unlockLevel - b.unlockLevel || b.priority - a.priority || a.label.localeCompare(b.label));
+
+        let skillY = 188;
+        for (const skill of relevantSkills) {
+            const unlocked = isSkillUnlocked(this.character, skill);
+            const compatibleSlots = slots.filter((slot) => canEquipSkill(this.character, skill, slot));
+            const card = this.add.rectangle(482, skillY - 8, 374, 56, unlocked ? 0x14253a : 0x222834).setOrigin(0).setDepth(202).setStrokeStyle(1, unlocked ? 0x3c6382 : 0x4a5362);
+            const name = addBoundedText(this, {
+                x: 498,
+                y: skillY,
+                content: `${skill.label} · ${this.skillTypeLabel(skill)}`,
+                width: 210,
+                height: 18,
+                minFontSize: 11,
+                maxLines: 1,
+                style: {
+                    fontSize: '13px',
+                    color: unlocked ? '#ffffff' : '#7f8c8d',
+                    fontStyle: 'bold',
+                },
+            }).setDepth(203);
+            const detail = addBoundedText(this, {
+                x: 498,
+                y: skillY + 22,
+                content: unlocked ? `${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)}` : this.skillLockedReason(skill),
+                width: 218,
+                height: 18,
+                minFontSize: 9,
+                maxLines: 1,
+                style: {
+                    fontSize: '10px',
+                    color: unlocked ? '#bdc3c7' : '#95a5a6',
+                },
+            }).setDepth(203);
+            elements.push(card, name, detail);
+
+            compatibleSlots.slice(0, 2).forEach((slot, index) => {
+                const btnX = 736 + index * 58;
+                const btn = this.add.text(btnX, skillY + 12, `[${this.shortSkillSlotLabel(slot)}]`, {
+                    fontSize: '11px',
+                    color: unlocked ? '#3498db' : '#555555',
+                }).setDepth(203).setInteractive({ useHandCursor: unlocked });
+                if (unlocked) {
+                    btn.on('pointerdown', () => {
+                        if (equipSkill(this.character, skill.id, slot)) {
+                            this.log(`装备技能：${skill.label}`);
+                            this.openSkillLoadoutPanel();
+                        }
+                    });
+                }
+                elements.push(btn);
+            });
+
+            skillY += 64;
+        }
+
+        const panelRect: PanelRect = { x: 120, y: 58, width: 784, height: 632 };
+        this.createManagedPanel(elements, panelRect, panelBg);
+    }
+
+    private skillSlotLabel(slot: SkillSlotType): string {
+        const labels: Record<SkillSlotType, string> = {
+            basicActive: '基础主动',
+            specializationActive: '专精主动',
+            passive1: '被动 1',
+            passive2: '被动 2',
+            trigger: '触发技能',
+        };
+        return labels[slot];
+    }
+
+    private shortSkillSlotLabel(slot: SkillSlotType): string {
+        const labels: Record<SkillSlotType, string> = {
+            basicActive: '基础',
+            specializationActive: '专精',
+            passive1: '被动1',
+            passive2: '被动2',
+            trigger: '触发',
+        };
+        return labels[slot];
+    }
+
+    private skillTypeLabel(skill: SkillDefinition): string {
+        if (skill.type === 'active') return '主动';
+        if (skill.type === 'passive') return '被动';
+        return '触发';
+    }
+
+    private skillConditionSummary(skill: SkillDefinition): string {
+        const condition = skill.conditions[0];
+        switch (condition.type) {
+            case 'always': return '冷却就绪';
+            case 'targetHpBelow': return `目标HP≤${Math.round(condition.ratio * 100)}%`;
+            case 'playerHpBelow': return `自身HP≤${Math.round(condition.ratio * 100)}%`;
+            case 'enemyCountNearby': return `附近敌人≥${condition.count}`;
+            case 'targetInRange': return `距离≤${condition.range}`;
+            case 'missingBuff': return `缺少${condition.buffId}`;
+        }
+    }
+
+    private skillEffectSummary(skill: SkillDefinition): string {
+        if (skill.type === 'passive') {
+            return skill.effects
+                .filter((effect) => effect.type === 'passiveStat')
+                .map((effect) => `${this.passiveStatLabel(effect.stat)}+${effect.value}${effect.stat === 'critRate' || effect.stat === 'critDamage' ? '%' : ''}`)
+                .join(' / ');
+        }
+
+        const parts = [`伤害${Math.round(skill.damageMultiplier * 100)}%`];
+        if (skill.critRateBonus) parts.push(`暴击+${skill.critRateBonus}%`);
+        if (skill.critDamageBonus) parts.push(`暴伤+${skill.critDamageBonus}%`);
+        if (skill.healRatio) parts.push(`回血${Math.round(skill.healRatio * 100)}%`);
+        return parts.join(' / ');
+    }
+
+    private passiveStatLabel(stat: string): string {
+        const labels: Record<string, string> = {
+            atk: '攻击',
+            def: '防御',
+            maxHp: '生命',
+            critRate: '暴击',
+            critDamage: '暴伤',
+            moveSpeed: '移速',
+        };
+        return labels[stat] ?? stat;
+    }
+
+    private skillLockedReason(skill: SkillDefinition): string {
+        if (this.character.level < skill.unlockLevel) {
+            return `Lv.${skill.unlockLevel} 解锁`;
+        }
+        if (skill.requiredSpecialization && skill.requiredSpecialization !== this.character.specialization) {
+            const spec = getSpecializationDef(skill.requiredClass, skill.requiredSpecialization);
+            return `${spec?.label ?? '对应专精'} 解锁`;
+        }
+        return '当前不可装备';
     }
 
     private equipmentTotalStats(equipment: Equipment): Record<'atk' | 'def' | 'hp' | 'attackSpeed' | 'critRate' | 'critDamage' | 'moveSpeed', number> {

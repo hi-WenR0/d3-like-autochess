@@ -1,5 +1,6 @@
 import type { CombatStyle } from './combat';
 import type { MonsterCodexData } from './monster';
+import type { SkillLoadout } from './skill';
 
 /** 角色基础属性 */
 export interface CharacterStats {
@@ -90,6 +91,7 @@ export interface CharacterData {
     expToNextLevel: number;
     statPoints: number;     // 可分配属性点
     allocatedStats: AllocatedStats;
+    skillLoadout: SkillLoadout;
     baseStats: CharacterStats;
     gold: number;
     currentFloor: number;   // 当前地牢层数 (1-based)

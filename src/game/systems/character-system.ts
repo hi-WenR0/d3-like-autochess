@@ -10,6 +10,8 @@ import {
     STAT_PER_POINT,
     BASE_CLASS_CONFIG,
     ADVANCEMENT_REQUIREMENT_LEVEL,
+    createDefaultSkillLoadout,
+    normalizeSkillLoadout,
     getSpecializationDef,
     expForLevel,
 } from '../models';
@@ -39,6 +41,7 @@ export function createCharacter(name: string, baseClass: CharacterBaseClass = 'b
         expToNextLevel: expForLevel(1),
         statPoints: 0,
         allocatedStats: { hp: 0, atk: 0, def: 0, attackSpeed: 0, critRate: 0, critDamage: 0, moveSpeed: 0 },
+        skillLoadout: createDefaultSkillLoadout({ baseClass, specialization: null }),
         baseStats: { ...classDef.startingStats },
         gold: 0,
         currentFloor: 1,
@@ -54,13 +57,15 @@ export function normalizeCharacterData(char: CharacterData): CharacterData {
             : char.level >= ADVANCEMENT_REQUIREMENT_LEVEL
                 ? 'eligible'
                 : 'base';
-    return {
+    const normalized: CharacterData = {
         ...char,
         baseClass: normalizedClass,
         combatStyle: BASE_CLASS_CONFIG[normalizedClass].combatStyle,
         specialization: specializationDef?.id ?? null,
         advancementState,
     };
+    normalized.skillLoadout = normalizeSkillLoadout(normalized);
+    return normalized;
 }
 
 /** 计算实际属性（基础 + 属性点加成 + 运行时加成） */
@@ -199,6 +204,7 @@ export function chooseSpecialization(
     }
     char.specialization = specialization;
     char.advancementState = 'specialized';
+    char.skillLoadout = normalizeSkillLoadout(char);
     return true;
 }
 

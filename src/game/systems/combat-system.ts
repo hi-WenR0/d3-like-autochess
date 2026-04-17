@@ -301,8 +301,15 @@ export function playerUseSkillOnMonster(
     stats?: CharacterStats,
 ): SkillCombatResult {
     const effectiveStats = stats ?? getEffectiveStats(char);
+    const targetHpRatio = monster.stats.maxHp > 0 ? monster.stats.hp / monster.stats.maxHp : 1;
+    let damageMultiplier = skill.damageMultiplier;
+    for (const effect of skill.effects) {
+        if (effect.type === 'execute' && targetHpRatio <= effect.threshold) {
+            damageMultiplier *= effect.bonusMultiplier;
+        }
+    }
     const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats, {
-        damageMultiplier: skill.damageMultiplier,
+        damageMultiplier,
         critRateBonus: skill.critRateBonus,
         critDamageBonus: skill.critDamageBonus,
     });
