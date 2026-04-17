@@ -247,6 +247,7 @@ const DEPTH = {
     WORLD_TILE: 0,
     WORLD_SKILL_WARNING: 15,
     WORLD_ENTITY: 20,
+    WORLD_PLAYER: 21,
     WORLD_PROJECTILE: 25,
     WORLD_LOOT: 30,
     WORLD_HIGHLIGHT_LOOT: 35,
@@ -592,7 +593,7 @@ export class Game extends Scene {
         this.playerBodySprite = body;
         this.playerFacing = 'down';
         this.playerFacingLeft = false;
-        this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(DEPTH.WORLD_ENTITY);
+        this.playerSprite = this.add.container(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, [body, label]).setDepth(DEPTH.WORLD_PLAYER);
         this.playerPhysicsHost = this.add.rectangle(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2, PLAYER_CONTACT_HITBOX_SIZE, PLAYER_CONTACT_HITBOX_SIZE, 0xffffff, 0)
             .setVisible(false)
             .setDepth(DEPTH.WORLD_TILE);
