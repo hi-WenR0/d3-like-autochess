@@ -191,7 +191,7 @@ import {
     type ActiveBuff,
     CONSUMABLE_DEFS,
 } from '../models/consumable';
-import { addBoundedText } from '../ui/text-layout';
+import { addBoundedText, fitTextToBounds } from '../ui/text-layout';
 
 const DUNGEON_WIDTH = 1024;
 const DUNGEON_HEIGHT = 600;
@@ -385,6 +385,9 @@ export class Game extends Scene {
     inventorySortOrder: InventorySortOrder = 'desc';
     inventoryPage = 0;
     consumableScrollIndex = 0;
+    selectedSkillSlot: SkillSlotType = 'basicActive';
+    selectedSkillId: string | null = null;
+    skillPoolScrollIndex = 0;
     playerMovementStrategy: MovementStrategy = 'approach';
     gameplayPhase: GameplayPhase = 'town';
     townOverlay: Phaser.GameObjects.Container | null = null;
@@ -3854,6 +3857,9 @@ export class Game extends Scene {
         elements.push(title, subtitle, closeBtn);
 
         const slots: SkillSlotType[] = ['basicActive', 'specializationActive', 'passive1', 'passive2', 'trigger'];
+        if (!slots.includes(this.selectedSkillSlot)) {
+            this.selectedSkillSlot = this.character.specialization ? 'specializationActive' : 'basicActive';
+        }
         const slotTitle = this.add.text(156, 154, '当前搭配', { fontSize: '16px', color: '#f1c40f', fontStyle: 'bold' }).setDepth(202);
         elements.push(slotTitle);
 
@@ -3861,8 +3867,14 @@ export class Game extends Scene {
         for (const slot of slots) {
             const skill = getEquippedSkillForSlot(this.character, slot);
             const skillLevel = skill ? getSkillProgress(this.character, skill.id).level : 0;
-            const slotBg = this.add.rectangle(150, y - 8, 300, 52, 0x17283a).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x34495e);
-            const slotLabel = this.add.text(166, y, this.skillSlotLabel(slot), { fontSize: '12px', color: '#95a5a6' }).setDepth(203);
+            const selected = this.selectedSkillSlot === slot;
+            const slotBg = this.add.rectangle(150, y - 8, 300, 52, selected ? 0x203a52 : 0x17283a).setOrigin(0).setDepth(202).setStrokeStyle(selected ? 2 : 1, selected ? 0x74b9ff : 0x34495e).setInteractive({ useHandCursor: true });
+            slotBg.on('pointerdown', () => {
+                this.selectedSkillSlot = slot;
+                this.selectedSkillId = getEquippedSkillForSlot(this.character, slot)?.id ?? null;
+                this.openSkillLoadoutPanel();
+            });
+            const slotLabel = this.add.text(166, y, `${selected ? '> ' : ''}${this.skillSlotLabel(slot)}`, { fontSize: '12px', color: selected ? '#74b9ff' : '#95a5a6' }).setDepth(203);
             const skillLabel = addBoundedText(this, {
                 x: 260,
                 y,
@@ -3880,7 +3892,7 @@ export class Game extends Scene {
             const desc = addBoundedText(this, {
                 x: 166,
                 y: y + 22,
-                content: skill ? `${this.skillTypeLabel(skill)} · ${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)} · ${skillTagsSummary(skill)}` : '从右侧已解锁技能中选择装备',
+                content: skill ? this.skillCompactSummary(skill) : '从右侧已解锁技能中选择装备',
                 width: 260,
                 height: 18,
                 minFontSize: 9,
@@ -3894,70 +3906,259 @@ export class Game extends Scene {
             y += 64;
         }
 
-        const poolTitle = this.add.text(486, 154, '技能池', { fontSize: '16px', color: '#f1c40f', fontStyle: 'bold' }).setDepth(202);
-        elements.push(poolTitle);
-
         const relevantSkills = CLASS_SKILLS
             .filter((skill) => skill.requiredClass === this.character.baseClass)
             .filter((skill) => skill.requiredSpecialization === undefined || skill.requiredSpecialization === this.character.specialization)
-            .sort((a, b) => a.unlockLevel - b.unlockLevel || b.priority - a.priority || a.label.localeCompare(b.label));
+            .sort((a, b) => this.skillCardSortValue(a) - this.skillCardSortValue(b) || a.unlockLevel - b.unlockLevel || b.priority - a.priority || a.label.localeCompare(b.label));
+        const selectedEquippedSkill = getEquippedSkillForSlot(this.character, this.selectedSkillSlot);
 
-        let skillY = 188;
-        for (const skill of relevantSkills) {
-            const unlocked = isSkillUnlocked(this.character, skill);
-            const compatibleSlots = slots.filter((slot) => canEquipSkill(this.character, skill, slot));
-            const card = this.add.rectangle(482, skillY - 8, 374, 56, unlocked ? 0x14253a : 0x222834).setOrigin(0).setDepth(202).setStrokeStyle(1, unlocked ? 0x3c6382 : 0x4a5362);
+        const detailBg = this.add.rectangle(150, 508, 300, 162, 0x111827).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x34495e);
+        const selectedSkill = this.getSelectedSkillForDetail(relevantSkills, selectedEquippedSkill);
+        const selectedSkillLevel = selectedSkill ? getSkillProgress(this.character, selectedSkill.id).level : 0;
+        const detailTitle = addBoundedText(this, {
+            x: 166,
+            y: 522,
+            content: selectedSkill ? `${selectedSkill.label} (Lv${selectedSkillLevel})` : '选择技能查看详情',
+            width: 258,
+            height: 20,
+            minFontSize: 12,
+            maxLines: 1,
+            style: {
+                fontSize: '14px',
+                color: selectedSkill && isSkillUnlocked(this.character, selectedSkill) ? '#ffffff' : '#95a5a6',
+                fontStyle: 'bold',
+            },
+        }).setDepth(203);
+        const detailLine1 = addBoundedText(this, {
+            x: 166,
+            y: 548,
+            content: selectedSkill ? this.skillCompactSummary(selectedSkill) : '右侧点击技能卡片后，会在这里显示可装备槽位。',
+            width: 258,
+            height: 18,
+            minFontSize: 9,
+            maxLines: 1,
+            style: {
+                fontSize: '10px',
+                color: '#bdc3c7',
+            },
+        }).setDepth(203);
+        const detailLine2 = addBoundedText(this, {
+            x: 166,
+            y: 570,
+            content: selectedSkill ? this.skillEffectSummary(selectedSkill) : '可直接点槽位按钮完成装备。',
+            width: 258,
+            height: 36,
+            minFontSize: 8,
+            maxLines: 2,
+            lineSpacing: 2,
+            style: {
+                fontSize: '10px',
+                color: '#bdc3c7',
+            },
+        }).setDepth(203);
+        const detailStatus = addBoundedText(this, {
+            x: 166,
+            y: 612,
+            content: selectedSkill ? this.skillCardStatus(selectedSkill, this.selectedSkillSlot) : '',
+            width: 258,
+            height: 18,
+            minFontSize: 9,
+            maxLines: 1,
+            style: {
+                fontSize: '10px',
+                color: selectedSkill && isSkillUnlocked(this.character, selectedSkill) ? '#74b9ff' : '#95a5a6',
+            },
+        }).setDepth(203);
+        elements.push(detailBg, detailTitle, detailLine1, detailLine2, detailStatus);
+
+        if (selectedSkill) {
+            slots.forEach((slot, slotIndex) => {
+                const buttonX = 166 + (slotIndex % 3) * 82;
+                const buttonY = 638 + Math.floor(slotIndex / 3) * 22;
+                const canEquipToSlot = canEquipSkill(this.character, selectedSkill, slot);
+                const equippedInSlot = this.findEquippedSkillSlot(selectedSkill.id) === slot;
+                const buttonColor = equippedInSlot ? '#2ecc71' : canEquipToSlot ? '#3498db' : '#59636f';
+                const slotBtn = this.add.text(buttonX, buttonY, equippedInSlot ? `[${this.shortSkillSlotLabel(slot)}*]` : `[${this.shortSkillSlotLabel(slot)}]`, {
+                    fontSize: '11px',
+                    color: buttonColor,
+                }).setDepth(203).setInteractive({ useHandCursor: canEquipToSlot });
+                slotBtn.on('pointerdown', () => {
+                    this.selectedSkillSlot = slot;
+                    this.onSkillSlotAction(selectedSkill, slot);
+                });
+                elements.push(slotBtn);
+            });
+        }
+
+        const poolTitle = this.add.text(486, 154, '技能池', { fontSize: '16px', color: '#f1c40f', fontStyle: 'bold' }).setDepth(202);
+        const selectedSlotHint = this.add.text(640, 156, `当前槽位: ${this.skillSlotLabel(this.selectedSkillSlot)}`, {
+            fontSize: '12px',
+            color: '#74b9ff',
+        }).setDepth(202);
+        elements.push(poolTitle, selectedSlotHint);
+
+        const rowHeight = 60;
+        const visibleRows = 7;
+        const maxSkillScrollIndex = Math.max(0, relevantSkills.length - visibleRows);
+        this.skillPoolScrollIndex = PhaserMath.Clamp(this.skillPoolScrollIndex, 0, maxSkillScrollIndex);
+        const listHitArea = this.add.rectangle(482, 180, 374, visibleRows * rowHeight, 0x000000, 0.001).setOrigin(0).setDepth(201).setInteractive();
+        elements.push(listHitArea);
+        const rowSkills: Array<SkillDefinition | null> = Array.from({ length: visibleRows }, () => null);
+        const rows = Array.from({ length: visibleRows }, (_, rowIndex) => {
+            const rowY = 188 + rowIndex * rowHeight;
+            const card = this.add.rectangle(482, rowY - 8, 374, 54, 0x1b1f2a).setOrigin(0).setDepth(202).setInteractive({ useHandCursor: true });
             const name = addBoundedText(this, {
                 x: 498,
-                y: skillY,
-                content: `${skill.label} · ${this.skillTypeLabel(skill)}`,
+                y: rowY,
+                content: '',
                 width: 210,
                 height: 18,
                 minFontSize: 11,
                 maxLines: 1,
                 style: {
                     fontSize: '13px',
-                    color: unlocked ? '#ffffff' : '#7f8c8d',
+                    color: '#ffffff',
                     fontStyle: 'bold',
                 },
             }).setDepth(203);
             const detail = addBoundedText(this, {
                 x: 498,
-                y: skillY + 22,
-                content: unlocked ? `${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)} · ${skillTagsSummary(skill)}` : this.skillLockedReason(skill),
-                width: 218,
+                y: rowY + 22,
+                content: '',
+                width: 270,
                 height: 18,
                 minFontSize: 9,
                 maxLines: 1,
                 style: {
                     fontSize: '10px',
-                    color: unlocked ? '#bdc3c7' : '#95a5a6',
+                    color: '#bdc3c7',
                 },
             }).setDepth(203);
-            elements.push(card, name, detail);
+            const actionText = this.add.text(778, rowY + 12, '', {
+                fontSize: '11px',
+                color: '#95a5a6',
+            }).setDepth(203).setInteractive({ useHandCursor: true });
+            const selectRowSkill = (): void => {
+                const skill = rowSkills[rowIndex];
+                if (!skill) return;
+                this.onSkillCardClick(skill, this.selectedSkillSlot);
+            };
+            card.on('pointerdown', selectRowSkill);
+            actionText.on('pointerdown', selectRowSkill);
+            elements.push(card, name, detail, actionText);
+            return { card, name, detail, actionText };
+        });
 
-            compatibleSlots.slice(0, 2).forEach((slot, index) => {
-                const btnX = 736 + index * 58;
-                const btn = this.add.text(btnX, skillY + 12, `[${this.shortSkillSlotLabel(slot)}]`, {
-                    fontSize: '11px',
-                    color: unlocked ? '#3498db' : '#555555',
-                }).setDepth(203).setInteractive({ useHandCursor: unlocked });
-                if (unlocked) {
-                    btn.on('pointerdown', () => {
-                        if (equipSkill(this.character, skill.id, slot)) {
-                            this.log(`装备技能：${skill.label}`);
-                            this.openSkillLoadoutPanel();
-                        }
-                    });
-                }
-                elements.push(btn);
+        const scrollTrackX = 866;
+        const scrollTrackTop = 188;
+        const scrollTrackHeight = visibleRows * rowHeight - 10;
+        const scrollTrack = this.add.rectangle(scrollTrackX, scrollTrackTop + scrollTrackHeight / 2, 8, scrollTrackHeight, 0x30304c).setDepth(203).setInteractive();
+        const scrollThumb = this.add.rectangle(scrollTrackX, scrollTrackTop, 14, 38, 0x74b9ff, 0.85).setDepth(204).setInteractive({ useHandCursor: true });
+        const rangeText = this.add.text(856, 610, '', {
+            fontSize: '11px',
+            color: '#95a5a6',
+        }).setOrigin(1, 0).setDepth(203);
+        elements.push(scrollTrack, scrollThumb, rangeText);
+
+        const renderSkillRows = (): void => {
+            const hasScroll = maxSkillScrollIndex > 0;
+            scrollTrack.setVisible(hasScroll);
+            scrollThumb.setVisible(hasScroll);
+            rangeText.setVisible(relevantSkills.length > 0);
+
+            rows.forEach((row, rowIndex) => {
+                const skill = relevantSkills[this.skillPoolScrollIndex + rowIndex] ?? null;
+                rowSkills[rowIndex] = skill;
+                const visible = skill !== null;
+                row.card.setVisible(visible);
+                row.name.setVisible(visible);
+                row.detail.setVisible(visible);
+                row.actionText.setVisible(visible);
+                if (!skill) return;
+
+                const unlocked = isSkillUnlocked(this.character, skill);
+                const selectedSlotCompatible = canEquipSkill(this.character, skill, this.selectedSkillSlot);
+                const equippedSlot = this.findEquippedSkillSlot(skill.id);
+                const selectedSlotEquipped = equippedSlot === this.selectedSkillSlot;
+                const detailSelected = selectedSkill?.id === skill.id;
+                const status = this.skillCardStatus(skill, this.selectedSkillSlot);
+                const canEquipToSelected = selectedSlotCompatible && !selectedSlotEquipped;
+                const cardFill = selectedSlotEquipped ? 0x25432f : canEquipToSelected ? 0x142f3a : unlocked ? 0x222834 : 0x1b1f2a;
+                const cardStroke = detailSelected ? 0xf1c40f : selectedSlotEquipped ? 0x2ecc71 : canEquipToSelected ? 0x3498db : unlocked ? 0x4a5362 : 0x343a46;
+
+                row.card.setFillStyle(cardFill);
+                row.card.setStrokeStyle(detailSelected || canEquipToSelected || selectedSlotEquipped ? 2 : 1, cardStroke);
+                row.name.setFontSize(13);
+                row.name.setText(`${skill.label} · ${this.skillTypeLabel(skill)}`);
+                fitTextToBounds(row.name, { width: 210, height: 18, minFontSize: 10, maxLines: 1 });
+                row.name.setColor(unlocked ? '#ffffff' : '#7f8c8d');
+                row.detail.setFontSize(10);
+                row.detail.setText(unlocked ? this.skillListSummary(skill, status) : status);
+                fitTextToBounds(row.detail, { width: 270, height: 18, minFontSize: 9, maxLines: 1 });
+                row.detail.setColor(unlocked ? '#bdc3c7' : '#95a5a6');
+                row.actionText.setText(selectedSlotEquipped ? '[已装备]' : canEquipToSelected ? '[装备]' : '[查看]');
+                row.actionText.setColor(selectedSlotEquipped ? '#2ecc71' : canEquipToSelected ? '#3498db' : '#95a5a6');
             });
 
-            skillY += 64;
-        }
+            if (relevantSkills.length === 0) {
+                rangeText.setText('0/0');
+                return;
+            }
+
+            const visibleCount = Math.min(visibleRows, relevantSkills.length - this.skillPoolScrollIndex);
+            rangeText.setText(`${this.skillPoolScrollIndex + 1}-${this.skillPoolScrollIndex + visibleCount}/${relevantSkills.length}`);
+
+            if (!hasScroll) return;
+            const thumbHeight = Math.max(38, (visibleRows / relevantSkills.length) * scrollTrackHeight);
+            const thumbTravel = scrollTrackHeight - thumbHeight;
+            scrollThumb.height = thumbHeight;
+            scrollThumb.y = scrollTrackTop + thumbHeight / 2 + (this.skillPoolScrollIndex / maxSkillScrollIndex) * thumbTravel;
+        };
+
+        const updateSkillScrollIndex = (index: number): void => {
+            const nextIndex = PhaserMath.Clamp(Math.round(index), 0, maxSkillScrollIndex);
+            if (nextIndex === this.skillPoolScrollIndex) return;
+            this.skillPoolScrollIndex = nextIndex;
+            renderSkillRows();
+        };
+
+        listHitArea.on('wheel', (_pointer: Phaser.Input.Pointer, _deltaX: number, deltaY: number) => {
+            if (maxSkillScrollIndex <= 0) return;
+            updateSkillScrollIndex(this.skillPoolScrollIndex + (deltaY > 0 ? 1 : -1));
+        });
+        scrollTrack.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            if (maxSkillScrollIndex <= 0) return;
+            const trackBounds = scrollTrack.getBounds();
+            const ratio = PhaserMath.Clamp((pointer.worldY - trackBounds.top) / trackBounds.height, 0, 1);
+            updateSkillScrollIndex(ratio * maxSkillScrollIndex);
+        });
+        scrollThumb.on('drag', (pointer: Phaser.Input.Pointer) => {
+            if (maxSkillScrollIndex <= 0) return;
+            const thumbHeight = scrollThumb.height;
+            const minY = scrollTrackTop + thumbHeight / 2;
+            const maxY = scrollTrackTop + scrollTrackHeight - thumbHeight / 2;
+            const deltaY = pointer.worldY - pointer.prevPosition.y;
+            scrollThumb.y = PhaserMath.Clamp(scrollThumb.y + deltaY, minY, maxY);
+            const thumbTravel = Math.max(1, scrollTrackHeight - thumbHeight);
+            const ratio = PhaserMath.Clamp((scrollThumb.y - scrollTrackTop - thumbHeight / 2) / thumbTravel, 0, 1);
+            updateSkillScrollIndex(ratio * maxSkillScrollIndex);
+        });
+        this.input.setDraggable(scrollThumb, true);
+        renderSkillRows();
 
         const panelRect: PanelRect = { x: 120, y: 58, width: 784, height: 632 };
         this.createManagedPanel(elements, panelRect, panelBg);
+    }
+
+    private getSelectedSkillForDetail(relevantSkills: SkillDefinition[], fallbackSkill: SkillDefinition | null): SkillDefinition | null {
+        if (this.selectedSkillId) {
+            const selected = relevantSkills.find((skill) => skill.id === this.selectedSkillId);
+            if (selected) return selected;
+        }
+
+        const preferredSkill = fallbackSkill ?? relevantSkills.find((skill) => canEquipSkill(this.character, skill, this.selectedSkillSlot)) ?? relevantSkills[0] ?? null;
+        this.selectedSkillId = preferredSkill?.id ?? null;
+        return preferredSkill;
     }
 
     private skillSlotLabel(slot: SkillSlotType): string {
@@ -3980,6 +4181,94 @@ export class Game extends Scene {
             trigger: '触发',
         };
         return labels[slot];
+    }
+
+    private skillCardSortValue(skill: SkillDefinition): number {
+        if (this.findEquippedSkillSlot(skill.id) === this.selectedSkillSlot) return 0;
+        if (canEquipSkill(this.character, skill, this.selectedSkillSlot)) return 1;
+        if (isSkillUnlocked(this.character, skill)) return 2;
+        return 3;
+    }
+
+    private skillCardStatus(skill: SkillDefinition, selectedSlot: SkillSlotType): string {
+        const equippedSlot = this.findEquippedSkillSlot(skill.id);
+        if (equippedSlot) {
+            return `已装备: ${this.skillSlotLabel(equippedSlot)}`;
+        }
+        if (!isSkillUnlocked(this.character, skill)) {
+            return this.skillLockedReason(skill);
+        }
+        if (canEquipSkill(this.character, skill, selectedSlot)) {
+            return `可装备到 ${this.skillSlotLabel(selectedSlot)}`;
+        }
+
+        const compatibleSlots = this.getCompatibleSkillSlots(skill);
+        if (compatibleSlots.length > 0) {
+            return `可装: ${compatibleSlots.map((slot) => this.shortSkillSlotLabel(slot)).join('/')}`;
+        }
+        return `不能装备到 ${this.skillSlotLabel(selectedSlot)}`;
+    }
+
+    private skillCompactSummary(skill: SkillDefinition): string {
+        return `${this.skillTypeLabel(skill)} · ${this.skillConditionSummary(skill)} · ${skillTagsSummary(skill)}`;
+    }
+
+    private skillListSummary(skill: SkillDefinition, status: string): string {
+        return `${status} · ${this.skillConditionSummary(skill)} · ${skillTagsSummary(skill)}`;
+    }
+
+    private onSkillCardClick(skill: SkillDefinition, selectedSlot: SkillSlotType): void {
+        this.selectedSkillId = skill.id;
+        const equippedSlot = this.findEquippedSkillSlot(skill.id);
+        if (equippedSlot === selectedSlot) {
+            this.log(`${skill.label} 已装备在 ${this.skillSlotLabel(selectedSlot)}`);
+            this.openSkillLoadoutPanel();
+            return;
+        }
+
+        if (canEquipSkill(this.character, skill, selectedSlot)) {
+            if (equipSkill(this.character, skill.id, selectedSlot)) {
+                this.log(`装备 ${skill.label} 到 ${this.skillSlotLabel(selectedSlot)}`);
+                this.openSkillLoadoutPanel();
+            }
+            return;
+        }
+
+        this.log(`${skill.label}: ${this.skillCardStatus(skill, selectedSlot)}`);
+        this.openSkillLoadoutPanel();
+    }
+
+    private onSkillSlotAction(skill: SkillDefinition, slot: SkillSlotType): void {
+        this.selectedSkillId = skill.id;
+        const equippedSlot = this.findEquippedSkillSlot(skill.id);
+        if (equippedSlot === slot) {
+            this.log(`${skill.label} 已装备在 ${this.skillSlotLabel(slot)}`);
+            this.openSkillLoadoutPanel();
+            return;
+        }
+
+        if (equipSkill(this.character, skill.id, slot)) {
+            this.log(`装备 ${skill.label} 到 ${this.skillSlotLabel(slot)}`);
+        } else {
+            this.log(`${skill.label}: ${this.skillCardStatus(skill, slot)}`);
+        }
+        this.openSkillLoadoutPanel();
+    }
+
+    private findEquippedSkillSlot(skillId: string): SkillSlotType | null {
+        const slots: SkillSlotType[] = ['basicActive', 'specializationActive', 'passive1', 'passive2', 'trigger'];
+        for (const slot of slots) {
+            const equippedSkill = getEquippedSkillForSlot(this.character, slot);
+            if (equippedSkill?.id === skillId) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    private getCompatibleSkillSlots(skill: SkillDefinition): SkillSlotType[] {
+        const slots: SkillSlotType[] = ['basicActive', 'specializationActive', 'passive1', 'passive2', 'trigger'];
+        return slots.filter((slot) => canEquipSkill(this.character, skill, slot));
     }
 
     private skillTypeLabel(skill: SkillDefinition): string {
