@@ -1,4 +1,5 @@
 import type { CombatStyle, MovementStrategy } from './combat';
+import type { MonsterPhase, MonsterSkillState } from './monster-skill';
 
 /** 怪物类型 */
 export type MonsterType = 'normal' | 'elite' | 'rare' | 'boss';
@@ -75,6 +76,12 @@ export interface Monster {
     alertState: 'idle' | 'alerted';
     x: number;
     y: number;
+    /** 当前阶段（Boss专用） */
+    currentPhase?: number;
+    /** 阶段配置（Boss专用） */
+    phases?: MonsterPhase[];
+    /** 技能冷却状态 */
+    skillState?: MonsterSkillState[];
 }
 
 export interface MonsterCodexEntry {

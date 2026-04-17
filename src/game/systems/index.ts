@@ -10,3 +10,11 @@ export { saveGame, loadGame, deleteSave, hasSave, getOfflineDuration, calculateO
 export { createConsumable, useConsumable, updateBuffs, getBuffBonuses, autoUsePotion } from './consumable-system';
 export { buyConsumable, sellEquipment, sellByRarityFromShop, getShopConsumables, canBuyMore } from './shop-system';
 export { canCastSkill, skillConditionSummary, skillTagsSummary, type SkillCastContext } from './skill-system';
+export {
+    updateMonsterSkillCooldowns,
+    selectSkillToCast,
+    executeMonsterSkill,
+    checkBossPhaseTransition,
+    initMonsterSkillState,
+    applyPhaseEffects,
+} from './monster-skill-system';

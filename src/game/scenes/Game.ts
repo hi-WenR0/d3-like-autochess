@@ -168,6 +168,21 @@ import {
     skillTagsSummary,
 } from '../systems/skill-system';
 import {
+    updateMonsterSkillCooldowns,
+    selectSkillToCast,
+    executeMonsterSkill,
+    checkBossPhaseTransition,
+    initMonsterSkillState,
+    applyPhaseEffects,
+} from '../systems/monster-skill-system';
+import {
+    getMonsterSkills,
+    getBossPhases,
+} from '../configs';
+import {
+    getDeathParticleConfig,
+} from '../configs/particle-configs';
+import {
     type Consumable,
     type ConsumableType,
     type ActiveBuff,
@@ -194,6 +209,7 @@ type ProjectileClass = 'ranger' | 'mage';
 
 const DEPTH = {
     WORLD_TILE: 0,
+    WORLD_SKILL_WARNING: 15,
     WORLD_ENTITY: 20,
     WORLD_PROJECTILE: 25,
     WORLD_LOOT: 30,
@@ -596,6 +612,19 @@ export class Game extends Scene {
             facingLeft: false,
             state: 'idle',
         } satisfies MonsterVisualState);
+
+        // 初始化怪物技能状态
+        const skills = getMonsterSkills(monster.catalogId, monster.type);
+        if (skills.length > 0) {
+            initMonsterSkillState(monster, skills);
+        }
+
+        // 初始化Boss阶段配置
+        if (monster.type === 'boss') {
+            monster.phases = getBossPhases(monster.catalogId);
+            monster.currentPhase = 0;
+        }
+
         this.syncMonsterVisualState(monster);
     }
 
@@ -704,6 +733,7 @@ export class Game extends Scene {
             if (result.specializationProc) suffixParts.push(result.specializationProc);
             const suffix = suffixParts.length > 0 ? ` ${suffixParts.join(' ')}` : '';
             this.showDamageNumber(this.currentMonster.x, this.currentMonster.y - 30, result.damageDealt, result.isCrit, suffix);
+            this.showHitFlash(this.currentMonster);
         }
 
         if (result.lifeStealHeal > 0) {
@@ -725,6 +755,84 @@ export class Game extends Scene {
             if (result.damageReceived > 0) {
                 // 伤害已在 combat-system 中扣除
             }
+
+            // 检查Boss阶段转换
+            const phase = checkBossPhaseTransition(this.currentMonster);
+            if (phase) {
+                applyPhaseEffects(this.currentMonster, phase);
+                if (phase.message) {
+                    this.showPhaseTransitionMessage(phase.message);
+                }
+                // 如果有技能覆盖，重新初始化技能状态
+                if (phase.skillOverrides) {
+                    const newSkills = getMonsterSkills(this.currentMonster.catalogId, this.currentMonster.type)
+                        .filter(s => phase.skillOverrides!.includes(s.id));
+                    if (newSkills.length > 0) {
+                        initMonsterSkillState(this.currentMonster, newSkills);
+                    }
+                }
+            }
+
+            // 执行怪物技能
+            this.executeMonsterSkills(time, this.currentMonster, stats);
+        }
+    }
+
+    /** 执行怪物技能 */
+    private executeMonsterSkills(time: number, monster: Monster, _playerStats: ReturnType<Game['getCurrentStats']>) {
+        const skills = getMonsterSkills(monster.catalogId, monster.type);
+        if (skills.length === 0) return;
+
+        // 更新技能冷却
+        updateMonsterSkillCooldowns([monster], this.game.loop.delta);
+
+        // 选择要释放的技能
+        const context = {
+            time,
+            playerX: this.playerSprite.x,
+            playerY: this.playerSprite.y,
+        };
+
+        const skillToCast = selectSkillToCast(monster, skills, context);
+        if (!skillToCast) return;
+
+        // 执行技能
+        const result = executeMonsterSkill(monster, skillToCast, context);
+
+        // 显示技能预警
+        if (result.showWarning && result.warningPosition) {
+            this.showSkillWarning(
+                result.warningPosition.x,
+                result.warningPosition.y,
+                result.warningPosition.radius,
+                result.warningPosition.color,
+                result.warningPosition.duration
+            );
+        }
+
+        // 处理技能伤害
+        if (result.damage && result.damage > 0) {
+            // 延迟造成伤害（配合预警时间）
+            const delay = skillToCast.visual?.warningDuration ?? 0;
+            this.time.delayedCall(delay, () => {
+                const playerDied = takeDamage(this.character, result.damage!, this.getCurrentStatBonuses());
+                this.showDamageNumber(this.playerSprite.x, this.playerSprite.y - 30, result.damage!, false, ` ${skillToCast.name}`);
+                if (playerDied) {
+                    this.onPlayerDeath();
+                }
+            });
+        }
+
+        // 处理召唤效果
+        if (result.summonedMonsters && result.summonedMonsters.length > 0) {
+            this.time.delayedCall(500, () => {
+                for (const summon of result.summonedMonsters!) {
+                    const summonedMonster = spawnMonster(this.dungeon.currentFloor, summon.x, summon.y, summon.type);
+                    this.renderMonster(summonedMonster);
+                    this.setupMonsterCollision();
+                }
+                this.log(`${monster.name} 召唤了援军！`);
+            });
         }
     }
 
@@ -1019,6 +1127,9 @@ export class Game extends Scene {
 
         // 药水掉落
         this.rollPotionDrop(monster);
+
+        // 死亡粒子效果
+        this.showDeathEffect(monster);
 
         const sprite = this.monsterSprites.get(monster.id);
         if (sprite) {
@@ -1791,6 +1902,92 @@ export class Game extends Scene {
             y: y - 40,
             alpha: 0,
             duration: 800,
+            onComplete: () => text.destroy(),
+        });
+    }
+
+    /** 怪物受击闪光效果 */
+    private showHitFlash(monster: Monster) {
+        const container = this.monsterSprites.get(monster.id);
+        if (!container) return;
+
+        const bodySprite = container.getData('bodySprite') as Phaser.GameObjects.Sprite;
+        if (!bodySprite) return;
+
+        bodySprite.setTint(0xffffff);
+        this.time.delayedCall(100, () => {
+            if (bodySprite && bodySprite.active) {
+                bodySprite.clearTint();
+            }
+        });
+    }
+
+    /** 怪物死亡粒子效果 */
+    private showDeathEffect(monster: Monster) {
+        const config = getDeathParticleConfig(monster.type);
+
+        // 创建一个简单的白色方块作为粒子纹理
+        const particleKey = 'particle-white';
+        if (!this.textures.exists(particleKey)) {
+            const graphics = this.make.graphics({ x: 0, y: 0 });
+            graphics.fillStyle(0xffffff);
+            graphics.fillRect(0, 0, 4, 4);
+            graphics.generateTexture(particleKey, 4, 4);
+            graphics.destroy();
+        }
+
+        const emitter = this.add.particles(monster.x, monster.y, particleKey, {
+            lifespan: config.lifespan,
+            speed: config.speed as { min: number; max: number },
+            scale: config.scale,
+            quantity: config.quantity,
+            alpha: config.alpha,
+            emitting: true,
+            emitCallback: (particle: Phaser.GameObjects.Particles.Particle) => {
+                if (config.tint) {
+                    const tints = Array.isArray(config.tint) ? config.tint : [config.tint];
+                    particle.tint = tints[Math.floor(Math.random() * tints.length)];
+                }
+            },
+        });
+
+        emitter.setDepth(DEPTH.WORLD_FLOATING_TEXT);
+
+        // 延迟销毁粒子发射器
+        this.time.delayedCall(config.lifespan + 100, () => {
+            emitter.destroy();
+        });
+    }
+
+    /** Boss技能预警圆环 */
+    private showSkillWarning(x: number, y: number, radius: number, color: number, duration: number) {
+        const circle = this.add.circle(x, y, 0, color, 0.3)
+            .setDepth(DEPTH.WORLD_SKILL_WARNING);
+
+        this.tweens.add({
+            targets: circle,
+            radius: radius,
+            alpha: 0.6,
+            duration: duration,
+            onComplete: () => circle.destroy(),
+        });
+    }
+
+    /** Boss阶段转换消息 */
+    private showPhaseTransitionMessage(message: string) {
+        const text = this.add.text(DUNGEON_WIDTH / 2, DUNGEON_HEIGHT / 2 - 60, message, {
+            fontSize: '20px',
+            color: '#ff6600',
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 4,
+        }).setOrigin(0.5).setDepth(DEPTH.WORLD_FLOATING_TEXT);
+
+        this.tweens.add({
+            targets: text,
+            y: DUNGEON_HEIGHT / 2 - 100,
+            alpha: 0,
+            duration: 2000,
             onComplete: () => text.destroy(),
         });
     }

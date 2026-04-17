@@ -32,6 +32,19 @@ export { OFFENSIVE_AFFIXES, DEFENSIVE_AFFIXES, SPECIAL_AFFIXES, ALL_AFFIXES } fr
 export type { MonsterType, MonsterTypeDef, MonsterStats, Monster, MonsterCodexEntry, MonsterCodexData } from './monster';
 export { MONSTER_TYPE_CONFIG, MONSTER_BASE_STATS, monsterStatsForFloor, MONSTER_SPAWN_WEIGHTS } from './monster';
 
+export type {
+    MonsterSkillType,
+    MonsterSkillEffectType,
+    MonsterSkillCondition,
+    MonsterSkillEffect,
+    MonsterSkillVisual,
+    MonsterSkillDefinition,
+    MonsterSkillState,
+    MonsterPhase,
+    SkillExecutionContext,
+    SkillExecutionResult,
+} from './monster-skill';
+
 export type { ItemType, InventoryItem, InventoryData } from './inventory';
 export { INVENTORY_ROWS, INVENTORY_COLS, INVENTORY_CAPACITY } from './inventory';
 
