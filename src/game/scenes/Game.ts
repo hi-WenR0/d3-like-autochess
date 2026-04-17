@@ -67,6 +67,7 @@ import {
 } from '../systems/monster-system';
 import {
     playerAttackMonster,
+    playerUseAoeSkillOnMonsters,
     playerUseSkillOnMonster,
     collectAffixEffects,
     getEffectiveSkillCooldownMs,
@@ -2492,6 +2493,11 @@ export class Game extends Scene {
         const cooldownMs = getEffectiveSkillCooldownMs(skill, this.affixEffects, skillLevel);
         this.skillCooldowns[skill.id] = time + cooldownMs;
         this.triggerPlayerAttackAnimation();
+        const aoeEffect = skill.effects.find((effect) => effect.type === 'aoeDamage');
+        if (aoeEffect) {
+            return this.resolveAoeClassSkill(skill, aoeEffect, monster, stats);
+        }
+
         const result = playerUseSkillOnMonster(this.character, monster, this.affixEffects, skill, stats);
         const sideEffectLines = this.applySkillSideEffects(skill);
         this.showDamageNumber(monster.x, monster.y - 44, result.damageDealt, result.isCrit, ` ${result.skillName}`);
@@ -2511,6 +2517,57 @@ export class Game extends Scene {
         return true;
     }
 
+    private resolveAoeClassSkill(
+        skill: SkillDefinition,
+        aoeEffect: Extract<SkillDefinition['effects'][number], { type: 'aoeDamage' }>,
+        monster: Monster,
+        stats: ReturnType<Game['getCurrentStats']>,
+    ): boolean {
+        const center = this.getAoeSkillCenter(skill, monster);
+        const targets = this.getAoeSkillTargets(skill, aoeEffect, monster);
+
+        if (targets.length === 0) {
+            return false;
+        }
+
+        this.showPlayerAoeWarning(skill, aoeEffect, monster, center);
+        const result = playerUseAoeSkillOnMonsters(this.character, targets, this.affixEffects, skill, stats);
+        const sideEffectLines = this.applySkillSideEffects(skill);
+
+        for (const hit of result.hits) {
+            this.showDamageNumber(hit.monster.x, hit.monster.y - 44, hit.damageDealt, hit.isCrit, ` ${result.skillName}`);
+            this.showHitFlash(hit.monster);
+
+            if (hit.monsterKilled) {
+                this.onMonsterKilled(hit.monster, {
+                    damageDealt: hit.damageDealt,
+                    isCrit: hit.isCrit,
+                    monsterKilled: true,
+                    expGained: hit.monster.stats.exp,
+                    goldGained: hit.monster.stats.gold,
+                    damageReceived: 0,
+                    playerDied: false,
+                    lifeStealHeal: 0,
+                    extraAttacks: 0,
+                    isEvaded: false,
+                    isCombo: false,
+                    specializationProc: result.skillName,
+                    specializationHeal: 0,
+                });
+            } else {
+                this.updateMonsterHpBar(hit.monster);
+            }
+        }
+
+        if (result.specializationHeal > 0) {
+            this.showHealNumber(this.playerSprite.x + 18, this.playerSprite.y - 58, result.specializationHeal);
+        }
+
+        const sideEffects = sideEffectLines.length > 0 ? ` · ${sideEffectLines.join(' / ')}` : '';
+        this.log(`释放技能：${result.skillName} 命中 ${result.hits.length} 个敌人${sideEffects}`);
+        return true;
+    }
+
     private canAutoCastSkill(skill: SkillDefinition, monster: Monster, stats: ReturnType<Game['getCurrentStats']>): boolean {
         const distanceToTarget = PhaserMath.Distance.Between(this.playerSprite.x, this.playerSprite.y, monster.x, monster.y);
         return canCastSkill(skill, {
@@ -2519,8 +2576,136 @@ export class Game extends Scene {
             stats,
             activeBuffs: this.activeBuffs,
             distanceToTarget,
-            nearbyEnemyCount: (radius) => this.countMonstersNearPlayer(radius),
+            nearbyEnemyCount: (radius) => {
+                const aoeEffect = skill.effects.find((effect) => effect.type === 'aoeDamage');
+                if (!aoeEffect) {
+                    return this.countMonstersNearPlayer(radius);
+                }
+
+                return this.getAoeSkillTargets(skill, aoeEffect, monster).length;
+            },
         });
+    }
+
+    private getAoeSkillCenter(skill: SkillDefinition, monster: Monster): { x: number; y: number } {
+        const aoeEffect = skill.effects.find((effect) => effect.type === 'aoeDamage');
+        if (aoeEffect?.center === 'self') {
+            return { x: this.playerSprite.x, y: this.playerSprite.y };
+        }
+        return { x: monster.x, y: monster.y };
+    }
+
+    private getAoeSkillTargets(
+        skill: SkillDefinition,
+        aoeEffect: Extract<SkillDefinition['effects'][number], { type: 'aoeDamage' }>,
+        monster: Monster,
+    ): Monster[] {
+        const shape = aoeEffect.shape ?? 'circle';
+        const center = this.getAoeSkillCenter(skill, monster);
+        const origin = { x: this.playerSprite.x, y: this.playerSprite.y };
+        const direction = PhaserMath.Angle.Between(origin.x, origin.y, monster.x, monster.y);
+        const aliveMonsters = this.getAliveMonsters();
+
+        const targets = aliveMonsters.filter((candidate) => {
+            if (shape === 'cone') {
+                const distance = PhaserMath.Distance.Between(origin.x, origin.y, candidate.x, candidate.y);
+                if (distance > aoeEffect.radius) return false;
+                const candidateAngle = PhaserMath.Angle.Between(origin.x, origin.y, candidate.x, candidate.y);
+                const delta = Math.abs(PhaserMath.Angle.Wrap(candidateAngle - direction));
+                return delta <= PhaserMath.DegToRad((aoeEffect.angleDegrees ?? 80) / 2);
+            }
+
+            if (shape === 'line') {
+                const dx = candidate.x - origin.x;
+                const dy = candidate.y - origin.y;
+                const ux = Math.cos(direction);
+                const uy = Math.sin(direction);
+                const projection = dx * ux + dy * uy;
+                if (projection < 0 || projection > aoeEffect.radius) return false;
+
+                const perpendicular = Math.abs(dx * uy - dy * ux);
+                return perpendicular <= (aoeEffect.width ?? 56) / 2;
+            }
+
+            const distance = PhaserMath.Distance.Between(center.x, center.y, candidate.x, candidate.y);
+            return distance <= aoeEffect.radius;
+        });
+
+        return targets
+            .sort((a, b) => this.getAoeTargetSortValue(a, aoeEffect, monster) - this.getAoeTargetSortValue(b, aoeEffect, monster))
+            .slice(0, aoeEffect.maxTargets);
+    }
+
+    private getAoeTargetSortValue(
+        target: Monster,
+        aoeEffect: Extract<SkillDefinition['effects'][number], { type: 'aoeDamage' }>,
+        monster: Monster,
+    ): number {
+        const shape = aoeEffect.shape ?? 'circle';
+        if (shape === 'cone' || shape === 'line') {
+            return PhaserMath.Distance.Between(this.playerSprite.x, this.playerSprite.y, target.x, target.y);
+        }
+
+        const center = aoeEffect.center === 'self'
+            ? { x: this.playerSprite.x, y: this.playerSprite.y }
+            : { x: monster.x, y: monster.y };
+        return PhaserMath.Distance.Between(center.x, center.y, target.x, target.y);
+    }
+
+    private getAliveMonsters(): Monster[] {
+        const monsters: Monster[] = [];
+        this.monsterSprites.forEach((container) => {
+            const monster = container.getData('monster') as Monster;
+            if (monster.stats.hp > 0) {
+                monsters.push(monster);
+            }
+        });
+        return monsters;
+    }
+
+    private showPlayerAoeWarning(
+        skill: SkillDefinition,
+        aoeEffect: Extract<SkillDefinition['effects'][number], { type: 'aoeDamage' }>,
+        monster: Monster,
+        center: { x: number; y: number },
+    ): void {
+        const shape = aoeEffect.shape ?? 'circle';
+        const color = skill.tags.includes('elemental') ? 0x9b59b6 : skill.requiredClass === 'ranger' ? 0x2ecc71 : 0xe74c3c;
+
+        if (shape === 'line') {
+            const origin = { x: this.playerSprite.x, y: this.playerSprite.y };
+            const angle = PhaserMath.Angle.Between(origin.x, origin.y, monster.x, monster.y);
+            const line = this.add.rectangle(
+                origin.x + Math.cos(angle) * aoeEffect.radius / 2,
+                origin.y + Math.sin(angle) * aoeEffect.radius / 2,
+                aoeEffect.radius,
+                aoeEffect.width ?? 56,
+                color,
+                0.18,
+            ).setDepth(DEPTH.WORLD_SKILL_WARNING).setRotation(angle);
+            this.tweens.add({ targets: line, alpha: 0, duration: 240, onComplete: () => line.destroy() });
+            return;
+        }
+
+        if (shape === 'cone') {
+            const origin = { x: this.playerSprite.x, y: this.playerSprite.y };
+            const angle = PhaserMath.Angle.Between(origin.x, origin.y, monster.x, monster.y);
+            const halfAngle = PhaserMath.DegToRad((aoeEffect.angleDegrees ?? 80) / 2);
+            const points = [
+                0,
+                0,
+                Math.cos(angle - halfAngle) * aoeEffect.radius,
+                Math.sin(angle - halfAngle) * aoeEffect.radius,
+                Math.cos(angle + halfAngle) * aoeEffect.radius,
+                Math.sin(angle + halfAngle) * aoeEffect.radius,
+            ];
+            const cone = this.add.polygon(origin.x, origin.y, points, color, 0.18)
+                .setDepth(DEPTH.WORLD_SKILL_WARNING);
+            this.tweens.add({ targets: cone, alpha: 0, duration: 240, onComplete: () => cone.destroy() });
+            return;
+        }
+
+        this.showSkillWarning(center.x, center.y, aoeEffect.radius, color, 180);
     }
 
     private applySkillSideEffects(skill: SkillDefinition): string[] {
@@ -3816,11 +4001,13 @@ export class Game extends Scene {
         }
 
         const skillLevel = getSkillProgress(this.character, skill.id).level;
-        const effectiveDamage = skill.damageMultiplier * getEffectiveSkillDamageMultiplier(skill, this.affixEffects, skillLevel);
+        const aoeEffect = skill.effects.find((effect) => effect.type === 'aoeDamage');
+        const effectiveDamage = (aoeEffect?.multiplier ?? skill.damageMultiplier) * getEffectiveSkillDamageMultiplier(skill, this.affixEffects, skillLevel);
         const effectiveCooldown = getEffectiveSkillCooldownMs(skill, this.affixEffects, skillLevel);
         const critRateBonusWithLevel = getSkillCritRateBonusWithLevel(skill, skillLevel);
         const critDamageBonusWithLevel = getSkillCritDamageBonusWithLevel(skill, skillLevel);
         const parts = [`Lv${skillLevel}`, `伤害${Math.round(effectiveDamage * 100)}%`, `冷却${(effectiveCooldown / 1000).toFixed(1)}s`];
+        if (aoeEffect) parts.push(`${this.aoeShapeLabel(aoeEffect.shape ?? 'circle')}`, `范围${aoeEffect.radius}`, `目标${aoeEffect.maxTargets}`);
         if (critRateBonusWithLevel > 0) parts.push(`暴击+${Math.round(critRateBonusWithLevel * 100) / 100}%`);
         if (critDamageBonusWithLevel > 0) parts.push(`暴伤+${critDamageBonusWithLevel}%`);
         const effectiveHealRatio = getEffectiveSkillHealRatio(skill, this.affixEffects, skillLevel);
@@ -3854,7 +4041,19 @@ export class Game extends Scene {
             const spec = getSpecializationDef(skill.requiredClass, skill.requiredSpecialization);
             return `${spec?.label ?? '对应专精'} 解锁`;
         }
+        if (skill.requiresSpecialization === true && this.character.specialization === null) {
+            return '转职后解锁';
+        }
         return '当前不可装备';
+    }
+
+    private aoeShapeLabel(shape: 'circle' | 'cone' | 'line'): string {
+        const labels: Record<'circle' | 'cone' | 'line', string> = {
+            circle: '圆形',
+            cone: '扇形',
+            line: '直线',
+        };
+        return labels[shape];
     }
 
     private equipmentTotalStats(equipment: Equipment): Record<'atk' | 'def' | 'hp' | 'attackSpeed' | 'critRate' | 'critDamage' | 'moveSpeed', number> {

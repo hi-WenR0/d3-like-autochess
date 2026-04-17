@@ -22,6 +22,7 @@ export type SkillCastCondition =
 
 export type SkillEffect =
     | { type: 'damage'; multiplier: number }
+    | { type: 'aoeDamage'; multiplier: number; radius: number; maxTargets: number; center: 'self' | 'target'; shape?: 'circle' | 'cone' | 'line'; angleDegrees?: number; width?: number }
     | { type: 'heal'; ratio: number }
     | { type: 'buff'; stat: 'atk' | 'def' | 'attackSpeed' | 'critRate' | 'moveSpeed'; value: number; durationMs: number }
     | { type: 'execute'; threshold: number; bonusMultiplier: number }
@@ -56,6 +57,7 @@ export interface SkillDefinition {
     slot: SkillSlotType | 'passive';
     requiredClass: CharacterBaseClass;
     requiredSpecialization?: CharacterSpecialization;
+    requiresSpecialization?: boolean;
     unlockLevel: number;
     cooldownMs: number;
     priority: number;
@@ -138,6 +140,27 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         },
     },
     {
+        id: 'berserker-earthshatter',
+        label: '裂地震击',
+        description: '二次转职后震裂周身地面，对附近多名敌人造成范围伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'berserker',
+        requiresSpecialization: true,
+        unlockLevel: 10,
+        cooldownMs: 10000,
+        priority: 65,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 110 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.35, radius: 110, maxTargets: 5, center: 'self' }],
+        tags: ['aoe', 'melee', 'specialization'],
+        damageMultiplier: 1,
+        critDamageBonus: 10,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+        },
+    },
+    {
         id: 'ranger-volley',
         label: '穿风箭',
         description: '游侠精准射击，提升暴击率与伤害。',
@@ -191,6 +214,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         effects: [{ type: 'damage', multiplier: 1.2 }, { type: 'buff', stat: 'moveSpeed', value: 25, durationMs: 4000 }],
         tags: ['trigger', 'ranged', 'mobility'],
         damageMultiplier: 1.2,
+        critRateBonus: 10,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critRateBonusPerLevel: 0.3,
+        },
+    },
+    {
+        id: 'ranger-burst-volley',
+        label: '爆裂箭雨',
+        description: '二次转职后向目标区域倾泻爆裂箭雨，对目标周围多名敌人造成范围伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'ranger',
+        requiresSpecialization: true,
+        unlockLevel: 10,
+        cooldownMs: 10000,
+        priority: 65,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 120 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.25, radius: 120, maxTargets: 5, center: 'target' }],
+        tags: ['aoe', 'ranged', 'specialization'],
+        damageMultiplier: 1,
         critRateBonus: 10,
         growth: {
             damageMultiplierPerLevel: 0.02,
@@ -257,6 +302,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         },
     },
     {
+        id: 'mage-elemental-nova',
+        label: '元素新星',
+        description: '二次转职后在目标区域引爆元素新星，对范围内多名敌人造成元素伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'mage',
+        requiresSpecialization: true,
+        unlockLevel: 10,
+        cooldownMs: 12000,
+        priority: 65,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 140 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.3, radius: 140, maxTargets: 6, center: 'target' }],
+        tags: ['aoe', 'elemental', 'specialization'],
+        damageMultiplier: 1,
+        critDamageBonus: 15,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critDamageBonusPerLevel: 1,
+        },
+    },
+    {
         id: 'slayer-execute',
         label: '处刑突袭',
         description: '屠戮者对濒危目标发动更致命一击。',
@@ -272,6 +339,27 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['execute', 'specialization'],
         damageMultiplier: 2.1,
         critDamageBonus: 25,
+    },
+    {
+        id: 'slayer-blood-arc',
+        label: '血弧斩',
+        description: '屠戮者向目标方向挥出血色弧斩，扇形范围内敌人受到伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'berserker',
+        requiredSpecialization: 'slayer',
+        unlockLevel: 10,
+        cooldownMs: 9500,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 130 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.45, radius: 130, maxTargets: 6, center: 'self', shape: 'cone', angleDegrees: 80 }],
+        tags: ['aoe', 'cone', 'execute', 'specialization'],
+        damageMultiplier: 1,
+        critDamageBonus: 20,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+        },
     },
     {
         id: 'slayer-fatal-instinct',
@@ -307,6 +395,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         healRatio: 0.05,
     },
     {
+        id: 'warlord-banner-shock',
+        label: '战旗震荡',
+        description: '战吼统帅以战旗震荡周围敌人，并在命中后回复少量生命。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'berserker',
+        requiredSpecialization: 'warlord',
+        unlockLevel: 10,
+        cooldownMs: 10500,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 125 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.3, radius: 125, maxTargets: 6, center: 'self', shape: 'circle' }, { type: 'heal', ratio: 0.04 }],
+        tags: ['aoe', 'guard', 'specialization'],
+        damageMultiplier: 1,
+        healRatio: 0.04,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            healRatioPerLevel: 0.004,
+        },
+    },
+    {
         id: 'warlord-command-aura',
         label: '统帅号令',
         description: '战吼统帅维持压场姿态，提升生命和防御。',
@@ -338,6 +448,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'heal'],
         damageMultiplier: 1.8,
         healRatio: 0.08,
+    },
+    {
+        id: 'bloodguard-sanguine-rift',
+        label: '猩红裂地',
+        description: '血怒守卫撕开猩红裂隙，伤害附近敌人并回复生命。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'berserker',
+        requiredSpecialization: 'bloodguard',
+        unlockLevel: 10,
+        cooldownMs: 11000,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 115 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.25, radius: 115, maxTargets: 6, center: 'self', shape: 'circle' }, { type: 'heal', ratio: 0.05 }],
+        tags: ['aoe', 'heal', 'specialization'],
+        damageMultiplier: 1,
+        healRatio: 0.05,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            healRatioPerLevel: 0.005,
+        },
     },
     {
         id: 'bloodguard-sanguine-wall',
@@ -374,6 +506,29 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         critDamageBonus: 20,
     },
     {
+        id: 'sharpshooter-piercing-line',
+        label: '贯星箭',
+        description: '神射手射出贯穿直线的星芒箭，沿途敌人受到伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'ranger',
+        requiredSpecialization: 'sharpshooter',
+        unlockLevel: 10,
+        cooldownMs: 9000,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 220 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.35, radius: 220, maxTargets: 5, center: 'self', shape: 'line', width: 54 }],
+        tags: ['aoe', 'line', 'crit', 'specialization'],
+        damageMultiplier: 1,
+        critRateBonus: 18,
+        critDamageBonus: 15,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critRateBonusPerLevel: 0.4,
+        },
+    },
+    {
         id: 'sharpshooter-steady-aim',
         label: '稳定瞄准',
         description: '神射手保持精确射击姿态，提升暴击率和暴击伤害。',
@@ -405,6 +560,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'control'],
         damageMultiplier: 1.75,
         critRateBonus: 12,
+    },
+    {
+        id: 'trapper-chain-mines',
+        label: '连锁爆雷',
+        description: '陷阱大师引爆目标区域的连锁陷阱，对范围内敌人造成伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'ranger',
+        requiredSpecialization: 'trapper',
+        unlockLevel: 10,
+        cooldownMs: 10000,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 150 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.3, radius: 150, maxTargets: 6, center: 'target', shape: 'circle' }],
+        tags: ['aoe', 'control', 'specialization'],
+        damageMultiplier: 1,
+        critRateBonus: 10,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critRateBonusPerLevel: 0.3,
+        },
     },
     {
         id: 'trapper-fieldcraft',
@@ -440,6 +617,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         healRatio: 0.05,
     },
     {
+        id: 'beastmaster-pack-maul',
+        label: '兽群扑袭',
+        description: '兽王猎手号令兽群向目标方向扑袭，扇形范围内敌人受到伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'ranger',
+        requiredSpecialization: 'beastmaster',
+        unlockLevel: 10,
+        cooldownMs: 10500,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 150 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.28, radius: 150, maxTargets: 6, center: 'self', shape: 'cone', angleDegrees: 100 }, { type: 'heal', ratio: 0.04 }],
+        tags: ['aoe', 'cone', 'summon', 'specialization'],
+        damageMultiplier: 1,
+        healRatio: 0.04,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            healRatioPerLevel: 0.004,
+        },
+    },
+    {
         id: 'beastmaster-pack-instinct',
         label: '兽群本能',
         description: '兽王猎手保持追猎节奏，提升攻击和移动速度。',
@@ -471,6 +670,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'elemental'],
         damageMultiplier: 1.95,
         critDamageBonus: 28,
+    },
+    {
+        id: 'elementalist-primal-eruption',
+        label: '原初爆发',
+        description: '元素术士在目标区域引发原初元素爆发，造成大范围元素伤害。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'mage',
+        requiredSpecialization: 'elementalist',
+        unlockLevel: 10,
+        cooldownMs: 12000,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 165 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.45, radius: 165, maxTargets: 7, center: 'target', shape: 'circle' }],
+        tags: ['aoe', 'elemental', 'specialization'],
+        damageMultiplier: 1,
+        critDamageBonus: 24,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critDamageBonusPerLevel: 1,
+        },
     },
     {
         id: 'elementalist-resonance',
@@ -506,6 +727,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         critRateBonus: 18,
     },
     {
+        id: 'arcanist-arcane-orbit',
+        label: '奥术回旋',
+        description: '奥术学者释放回旋奥术，环绕自身打击周围敌人。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'mage',
+        requiredSpecialization: 'arcanist',
+        unlockLevel: 10,
+        cooldownMs: 8500,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 135 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.25, radius: 135, maxTargets: 6, center: 'self', shape: 'circle' }],
+        tags: ['aoe', 'arcane', 'specialization'],
+        damageMultiplier: 1,
+        critRateBonus: 14,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critRateBonusPerLevel: 0.4,
+        },
+    },
+    {
         id: 'arcanist-flow',
         label: '奥术流转',
         description: '奥术学者维持高频施法，提升攻击和暴击率。',
@@ -537,6 +780,28 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'summon'],
         damageMultiplier: 1.85,
         healRatio: 0.07,
+    },
+    {
+        id: 'summoner-starfall-command',
+        label: '先知星陨',
+        description: '召唤先知降下星陨印记，轰击目标区域并回复生命。',
+        type: 'active',
+        slot: 'specializationActive',
+        requiredClass: 'mage',
+        requiredSpecialization: 'summoner',
+        unlockLevel: 10,
+        cooldownMs: 11500,
+        priority: 68,
+        conditions: [{ type: 'enemyCountNearby', count: 2, radius: 150 }],
+        effects: [{ type: 'aoeDamage', multiplier: 1.3, radius: 150, maxTargets: 6, center: 'target', shape: 'circle' }, { type: 'heal', ratio: 0.04 }],
+        tags: ['aoe', 'summon', 'specialization'],
+        damageMultiplier: 1,
+        healRatio: 0.04,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            healRatioPerLevel: 0.004,
+        },
     },
     {
         id: 'summoner-covenant',
@@ -621,6 +886,7 @@ export function createDefaultSkillLoadout(char: Pick<CharacterData, 'baseClass' 
 export function isSkillUnlocked(char: CharacterData, skill: SkillDefinition): boolean {
     if (skill.requiredClass !== char.baseClass) return false;
     if (skill.requiredSpecialization !== undefined && skill.requiredSpecialization !== char.specialization) return false;
+    if (skill.requiresSpecialization === true && char.specialization === null) return false;
     return char.level >= skill.unlockLevel;
 }
 
@@ -827,4 +1093,3 @@ export function getSkillCritDamageBonusWithLevel(skill: SkillDefinition, level: 
     if (!growth || !growth.critDamageBonusPerLevel) return base;
     return base + growth.critDamageBonusPerLevel * (level - 1);
 }
-

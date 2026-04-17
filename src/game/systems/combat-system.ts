@@ -33,6 +33,21 @@ export interface SkillCombatResult extends CombatResult {
     skillName: string;
 }
 
+export interface AoeSkillHitResult {
+    monster: Monster;
+    damageDealt: number;
+    isCrit: boolean;
+    monsterKilled: boolean;
+}
+
+export interface AoeSkillCombatResult {
+    skillName: string;
+    hits: AoeSkillHitResult[];
+    expGained: number;
+    goldGained: number;
+    specializationHeal: number;
+}
+
 /** 收集所有装备上的词条效果 */
 export function collectAffixEffects(equipped: EquippedItems): AffixEffects {
     const bonuses = calculateEquipBonuses(equipped);
@@ -408,6 +423,57 @@ export function playerUseSkillOnMonster(
         isEvaded: false,
         isCombo: false,
         specializationProc: skill.label,
+        specializationHeal,
+    };
+}
+
+export function playerUseAoeSkillOnMonsters(
+    char: CharacterData,
+    monsters: Monster[],
+    effects: AffixEffects,
+    skill: SkillDefinition,
+    stats?: CharacterStats,
+): AoeSkillCombatResult {
+    const effectiveStats = stats ?? getEffectiveStats(char);
+    const progress = getSkillProgress(char, skill.id);
+    const level = progress.level;
+    const aoeEffect = skill.effects.find((effect) => effect.type === 'aoeDamage');
+    const aoeMultiplier = aoeEffect?.multiplier ?? 1;
+    const skillMultiplier = getEffectiveSkillDamageMultiplier(skill, effects, level);
+    const hits: AoeSkillHitResult[] = [];
+    let expGained = 0;
+    let goldGained = 0;
+
+    for (const monster of monsters) {
+        if (monster.stats.hp <= 0) continue;
+        const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats, {
+            damageMultiplier: aoeMultiplier * skillMultiplier,
+            critRateBonus: skill.critRateBonus,
+            critDamageBonus: skill.critDamageBonus,
+        });
+        const damageDealt = applyDamageToMonster(rawDamage, Math.floor(monster.stats.atk * 0.25), effects);
+        const monsterKilled = monsterTakeDamage(monster, damageDealt);
+        if (monsterKilled) {
+            expGained += monster.stats.exp;
+            goldGained += monster.stats.gold;
+        }
+        hits.push({ monster, damageDealt, isCrit, monsterKilled });
+    }
+
+    let specializationHeal = 0;
+    const healRatio = getEffectiveSkillHealRatio(skill, effects, level);
+    if (healRatio > 0) {
+        specializationHeal = Math.max(1, Math.floor(effectiveStats.maxHp * healRatio));
+        char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + specializationHeal);
+    }
+
+    addSkillExperience(skill.id, 10, char);
+
+    return {
+        skillName: skill.label,
+        hits,
+        expGained,
+        goldGained,
         specializationHeal,
     };
 }
