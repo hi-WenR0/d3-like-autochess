@@ -204,6 +204,10 @@ const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
 const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
+const PLAYER_WORLD_BOUND_LEFT = 30;
+const PLAYER_WORLD_BOUND_TOP = 30;
+const PLAYER_WORLD_BOUND_RIGHT = 30;
+const PLAYER_WORLD_BOUND_BOTTOM = 20;
 const DUNGEON1_WALLS_FLOOR_TILESET_NAME = 'walls_floor';
 const DUNGEON1_PRIMARY_FLOOR_TILE_ID = 139;
 const DUNGEON1_FLOOR_PATCH_TILE_PAIRS = [
@@ -1688,8 +1692,8 @@ export class Game extends Scene {
             targetY = this.playerSprite.y + Math.sin(randomAngle) * randomDistance;
 
             // 限制在地图范围内
-            targetX = Math.max(30, Math.min(DUNGEON_WIDTH - 30, targetX));
-            targetY = Math.max(30, Math.min(DUNGEON_HEIGHT - 30, targetY));
+            targetX = Math.max(PLAYER_WORLD_BOUND_LEFT, Math.min(DUNGEON_WIDTH - PLAYER_WORLD_BOUND_RIGHT, targetX));
+            targetY = Math.max(PLAYER_WORLD_BOUND_TOP, Math.min(DUNGEON_HEIGHT - PLAYER_WORLD_BOUND_BOTTOM, targetY));
         }
 
         // 计算移动方向
@@ -1714,8 +1718,8 @@ export class Game extends Scene {
         let nextY = this.playerSprite.y + direction.y * step;
 
         // 限制在地图范围内
-        nextX = PhaserMath.Clamp(nextX, 30, DUNGEON_WIDTH - 30);
-        nextY = PhaserMath.Clamp(nextY, 30, DUNGEON_HEIGHT - 30);
+        nextX = PhaserMath.Clamp(nextX, PLAYER_WORLD_BOUND_LEFT, DUNGEON_WIDTH - PLAYER_WORLD_BOUND_RIGHT);
+        nextY = PhaserMath.Clamp(nextY, PLAYER_WORLD_BOUND_TOP, DUNGEON_HEIGHT - PLAYER_WORLD_BOUND_BOTTOM);
 
         if (nextX === this.playerSprite.x && nextY === this.playerSprite.y) {
             if (!this.isPlayerAttackAnimationLocked()) {
@@ -1784,8 +1788,8 @@ export class Game extends Scene {
         let nextX = this.playerSprite.x + movement.x * step;
         let nextY = this.playerSprite.y + movement.y * step;
 
-        nextX = PhaserMath.Clamp(nextX, 30, DUNGEON_WIDTH - 30);
-        nextY = PhaserMath.Clamp(nextY, 30, DUNGEON_HEIGHT - 30);
+        nextX = PhaserMath.Clamp(nextX, PLAYER_WORLD_BOUND_LEFT, DUNGEON_WIDTH - PLAYER_WORLD_BOUND_RIGHT);
+        nextY = PhaserMath.Clamp(nextY, PLAYER_WORLD_BOUND_TOP, DUNGEON_HEIGHT - PLAYER_WORLD_BOUND_BOTTOM);
 
         if (nextX === this.playerSprite.x && nextY === this.playerSprite.y) {
             return false;
