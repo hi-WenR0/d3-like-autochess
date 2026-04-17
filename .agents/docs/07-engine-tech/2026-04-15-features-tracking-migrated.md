@@ -943,3 +943,5 @@
 - 2026-04-17: 新增敌人碰撞体与玩家接触伤害修复文档 `.agents/docs/08-bugfix/2026-04-17-enemy-collision-bodies-and-contact-damage.md`
 
 - 2026-04-17: Added character panel merge doc .agents/docs/05-ui-ux/2026-04-17-character-panel-merge.md
+
+- 2026-04-17: Added save slot class label doc .agents/docs/05-ui-ux/2026-04-17-save-slot-class-label.md

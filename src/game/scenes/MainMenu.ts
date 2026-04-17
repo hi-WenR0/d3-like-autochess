@@ -187,7 +187,7 @@ export class MainMenu extends Scene {
             elements.push(rowBg);
 
             const summary = slot.hasSave
-                ? `槽位 ${String(slot.slotId).padStart(2, '0')}  |  ${slot.name ?? '未知角色'}  |  Lv.${slot.level}  |  ${slot.floor}F  |  ${this.formatTimestamp(slot.timestamp)}`
+                ? `槽位 ${String(slot.slotId).padStart(2, '0')}  |  ${slot.classLabel ?? '未知角色'}  |  Lv.${slot.level}  |  ${slot.floor}F  |  ${this.formatTimestamp(slot.timestamp)}`
                 : `槽位 ${String(slot.slotId).padStart(2, '0')}  |  空存档`;
             const summaryText = addBoundedText(this, {
                 x: x + 16,

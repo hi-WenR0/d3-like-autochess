@@ -6,7 +6,7 @@ import type { MonsterCodexData } from '../models/monster';
 import type { EquippedItems } from './equip-system';
 import { normalizeCharacterData } from './character-system';
 import { normalizeDungeonState } from './dungeon-system';
-import { getAllowedClassesForEquipment } from '../models';
+import { getAllowedClassesForEquipment, getBaseClassDef, getSpecializationDef } from '../models';
 
 const LEGACY_SAVE_KEY = 'darklike_save';
 const SAVE_KEY_PREFIX = 'darklike_save_slot_';
@@ -35,6 +35,7 @@ export interface SaveSlotSummary {
     level: number | null;
     floor: number | null;
     name: string | null;
+    classLabel: string | null;
 }
 
 function normalizeSlot(slotId: number): number {
@@ -121,6 +122,10 @@ export function listSaveSlots(): SaveSlotSummary[] {
     const slots: SaveSlotSummary[] = [];
     for (let slotId = 1; slotId <= MAX_SAVE_SLOTS; slotId++) {
         const data = loadGame(slotId);
+        const classLabel = data
+            ? getSpecializationDef(data.character.baseClass, data.character.specialization)?.label
+                ?? getBaseClassDef(data.character.baseClass).label
+            : null;
         slots.push({
             slotId,
             hasSave: data !== null,
@@ -128,6 +133,7 @@ export function listSaveSlots(): SaveSlotSummary[] {
             level: data?.character.level ?? null,
             floor: data?.dungeon.currentFloor ?? null,
             name: data?.character.name ?? null,
+            classLabel,
         });
     }
     return slots;
