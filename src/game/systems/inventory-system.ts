@@ -52,7 +52,7 @@ export function addItem(inventory: InventoryData, equipment: Equipment): boolean
     const slotIndex = findFirstEmptySlot(inventory);
     if (slotIndex === -1) return false;
 
-    inventory.items.push({ slotIndex, item: equipment });
+    inventory.items.push({ slotIndex, item: equipment, locked: false });
     return true;
 }
 
@@ -127,6 +127,7 @@ export function sellByRarity(inventory: InventoryData, maxRarity: string, sellPr
     const toRemove: number[] = [];
 
     for (const item of inventory.items) {
+        if (item.locked) continue;
         const idx = order.indexOf(item.item.rarity);
         if (idx <= maxIdx) {
             totalGold += sellPriceFn(item.item);
@@ -184,6 +185,8 @@ export function dismantleOne(inventory: InventoryData, equipmentId: string): num
     if (index === -1) return 0;
 
     const target = inventory.items[index];
+    if (target.locked) return 0;
+
     const essence = dismantleValue(target.item);
     inventory.items.splice(index, 1);
     inventory.dismantleEssence += essence;
@@ -198,7 +201,7 @@ export function dismantleByRarity(inventory: InventoryData, maxRarity: Rarity): 
 
     const remain: InventoryItem[] = [];
     for (const item of inventory.items) {
-        if (RARITY_ORDER[item.item.rarity] <= maxOrder) {
+        if (!item.locked && RARITY_ORDER[item.item.rarity] <= maxOrder) {
             count += 1;
             essence += dismantleValue(item.item);
         } else {
@@ -216,18 +219,19 @@ export function dismantleByRarity(inventory: InventoryData, maxRarity: Rarity): 
 
 /** 自动分解等级最低的前 N 件装备 */
 export function autoDismantleLowestLevelItems(inventory: InventoryData, maxCount: number): { count: number; essence: number } {
-    if (maxCount <= 0 || inventory.items.length === 0) {
+    const candidates = inventory.items.filter((item) => !item.locked);
+    if (maxCount <= 0 || candidates.length === 0) {
         return { count: 0, essence: 0 };
     }
 
-    const selected = [...inventory.items]
+    const selected = [...candidates]
         .sort((a, b) => {
             if (a.item.level !== b.item.level) {
                 return a.item.level - b.item.level;
             }
             return a.slotIndex - b.slotIndex;
         })
-        .slice(0, Math.min(maxCount, inventory.items.length));
+        .slice(0, Math.min(maxCount, candidates.length));
 
     if (selected.length === 0) {
         return { count: 0, essence: 0 };
@@ -247,6 +251,14 @@ export function shouldAutoDismantle(inventory: InventoryData, equipment: Equipme
     return RARITY_ORDER[equipment.rarity] <= RARITY_ORDER[inventory.autoDismantleMaxRarity];
 }
 
+export function toggleItemLock(inventory: InventoryData, equipmentId: string): boolean | null {
+    const item = inventory.items.find((inventoryItem) => inventoryItem.item.id === equipmentId);
+    if (!item) return null;
+
+    item.locked = !item.locked;
+    return item.locked;
+}
+
 /** 兼容旧存档字段 */
 export function normalizeInventoryData(inventory: InventoryData): void {
     if (typeof inventory.dismantleEssence !== 'number') {
@@ -258,6 +270,9 @@ export function normalizeInventoryData(inventory: InventoryData): void {
     if (inventory.autoDismantleMaxRarity === undefined) {
         inventory.autoDismantleMaxRarity = 'common';
     }
+    inventory.items.forEach((item) => {
+        item.locked = item.locked === true;
+    });
 }
 
 function dismantleValue(equipment: Equipment): number {

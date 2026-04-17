@@ -72,6 +72,7 @@ import {
     removeItem,
     isFull,
     sellByRarity,
+    toggleItemLock,
     queryInventoryItems,
     type InventorySortBy,
     type InventorySortOrder,
@@ -2160,6 +2161,21 @@ export class Game extends Scene {
                     const nameLabel = this.add.text(cx + cellSize / 2, cy + 26, item.item.name.substring(0, 4), { fontSize: '8px', color: '#ffffff' }).setOrigin(0.5).setDepth(204);
                     elements.push(nameLabel);
 
+                    const lockToggle = this.add.text(cx + 5, cy + 4, '锁', {
+                        fontSize: '10px',
+                        color: item.locked ? '#f1c40f' : '#6f7580',
+                        fontStyle: 'bold',
+                    }).setDepth(206).setInteractive({ useHandCursor: true });
+                    lockToggle.on('pointerdown', () => {
+                        const locked = toggleItemLock(this.inventory, item.item.id);
+                        if (locked !== null) {
+                            this.log(`${locked ? '锁定' : '解锁'} ${item.item.name}`);
+                        }
+                        this.openInventoryPanel();
+                    });
+                    elements.push(lockToggle);
+
+
                     // 点击装备
                     const hitArea = this.add.rectangle(cx + cellSize / 2, cy + cellSize / 2, cellSize, cellSize, 0x000000, 0).setDepth(205).setInteractive();
                     hitArea.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -2170,6 +2186,8 @@ export class Game extends Scene {
                             const essence = dismantleOne(this.inventory, item.item.id);
                             if (essence > 0) {
                                 this.log(`拆解 ${item.item.name}，获得 ${essence} 精华`);
+                            } else {
+                                this.log(`${item.item.name} 已锁定，无法拆解`);
                             }
                             this.openInventoryPanel();
                             return;

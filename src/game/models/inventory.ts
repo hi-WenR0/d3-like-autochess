@@ -13,6 +13,7 @@ export type ItemType = 'equipment' | 'consumable' | 'material';
 export interface InventoryItem {
     slotIndex: number;  // 格子索引 (0-(INVENTORY_CAPACITY-1))
     item: Equipment;    // 目前只有装备，后续扩展 consumable/material
+    locked: boolean;    // 锁定后跳过批量出售与分解
 }
 
 /** 背包数据 */
