@@ -1332,6 +1332,9 @@ export class Game extends Scene {
 
         this.monsterSprites.forEach((container) => {
             const monster = container.getData('monster') as Monster;
+            if (monster.stats.hp <= 0) {
+                return;
+            }
             if (alertedOnly && monster.alertState !== 'alerted') {
                 return;
             }

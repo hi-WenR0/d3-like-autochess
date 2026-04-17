@@ -299,7 +299,7 @@ export function playerAttackMonster(
         specializationProc = '元素爆裂';
     }
     const damageDealt = applyDamageToMonster(rawDamage, Math.floor(monster.stats.atk * 0.3), effects);
-    const monsterKilled = monsterTakeDamage(monster, damageDealt);
+    let monsterKilled = monsterTakeDamage(monster, damageDealt);
 
     // 连击判定
     let extraAttacks = 0;
@@ -307,7 +307,7 @@ export function playerAttackMonster(
     if (!monsterKilled && comboChance > 0 && Math.random() * 100 < comboChance) {
         extraAttacks = 1;
         const extraDamage = applyDamageToMonster(rawDamage, Math.floor(monster.stats.atk * 0.3), effects);
-        monsterTakeDamage(monster, extraDamage);
+        monsterKilled = monsterTakeDamage(monster, extraDamage);
         if (char.specialization === 'beastmaster') {
             specializationProc = '协猎';
         }
