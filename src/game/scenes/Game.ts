@@ -377,6 +377,7 @@ export class Game extends Scene {
     inventorySortBy: InventorySortBy = 'rarity';
     inventorySortOrder: InventorySortOrder = 'desc';
     inventoryPage = 0;
+    consumableScrollIndex = 0;
     playerMovementStrategy: MovementStrategy = 'approach';
     gameplayPhase: GameplayPhase = 'town';
     townOverlay: Phaser.GameObjects.Container | null = null;
@@ -4940,67 +4941,159 @@ export class Game extends Scene {
         const panelBg = this.add.rectangle(250, 80, 524, 580, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x4a4a6a);
         elements.push(panelBg);
 
-        const title = this.add.text(512, 100, '消耗品', { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5).setDepth(202);
+        const activeConsumables = this.consumables.filter(consumable => consumable.count > 0);
+        const title = this.add.text(512, 100, `消耗品 (${activeConsumables.length})`, { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5).setDepth(202);
         elements.push(title);
 
         const closeBtn = this.add.text(740, 90, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
         closeBtn.on('pointerdown', () => this.closeUI());
         elements.push(closeBtn);
 
-        // 消耗品列表
-        let cy = 140;
-        if (this.consumables.length === 0) {
-            const empty = this.add.text(512, cy, '暂无消耗品', { fontSize: '14px', color: '#95a5a6' }).setOrigin(0.5).setDepth(202);
-            elements.push(empty);
-        }
-
-        for (const cons of this.consumables) {
-            if (cons.count <= 0) continue;
-            const def = CONSUMABLE_DEFS[cons.type];
-
-            const rowBg = this.add.rectangle(280, cy, 464, 40, 0x2a2a3e).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x4a4a6a);
-            elements.push(rowBg);
-
-            const categoryColors: Record<string, number> = { potion: 0x2ecc71, scroll: 0x3498db, elixir: 0x9b59b6 };
-            const dot = this.add.rectangle(295, cy + 10, 8, 8, categoryColors[def.category] ?? 0xffffff).setDepth(203);
-            elements.push(dot);
-
-            const nameText = this.add.text(310, cy + 5, `${def.name} x${cons.count}`, { fontSize: '13px', color: '#ffffff' }).setDepth(203);
-            elements.push(nameText);
-
-            const descText = this.add.text(310, cy + 22, def.description, { fontSize: '10px', color: '#95a5a6' }).setDepth(203);
-            elements.push(descText);
-
-            const useBtn = this.add.text(700, cy + 10, '[使用]', { fontSize: '12px', color: '#3498db' }).setDepth(203).setInteractive();
-            useBtn.on('pointerdown', () => {
-                const result = useConsumable(cons, this.character, this.activeBuffs, Date.now(), this.getCurrentStatBonuses());
-                if (result.success) {
-                    this.log(result.message);
-                    this.consumables = this.consumables.filter(c => c.count > 0);
-                } else {
-                    this.log(result.message);
-                }
-                this.openConsumablePanel(); // 刷新
-            });
-            elements.push(useBtn);
-
-            cy += 48;
-        }
-
-        // 活跃增益
-        cy += 20;
-        if (this.activeBuffs.length > 0) {
-            const buffTitle = this.add.text(280, cy, '活跃增益:', { fontSize: '14px', color: '#f39c12' }).setDepth(202);
-            elements.push(buffTitle);
-            cy += 25;
-
-            for (const buff of this.activeBuffs) {
+        const activeBuffSummary = this.activeBuffs.length > 0
+            ? this.activeBuffs.map((buff) => {
                 const remain = Math.max(0, Math.ceil((buff.endTime - Date.now()) / 1000));
-                const text = this.add.text(290, cy, `${buff.name} - ${buff.stat}+${buff.value}% (${remain}s)`, { fontSize: '12px', color: '#e6cc80' }).setDepth(202);
-                elements.push(text);
-                cy += 22;
-            }
-        }
+                return `${buff.name} ${remain}s`;
+            }).join('  ')
+            : '无活跃增益';
+        const buffText = this.add.text(512, 124, `增益: ${activeBuffSummary}`, {
+            fontSize: '12px',
+            color: this.activeBuffs.length > 0 ? '#e6cc80' : '#95a5a6',
+        }).setOrigin(0.5).setDepth(202);
+        elements.push(buffText);
+
+        const listX = 280;
+        const listY = 145;
+        const listWidth = 464;
+        const listHeight = 488;
+        const rowHeight = 48;
+        const visibleRows = Math.floor(listHeight / rowHeight);
+        let maxScrollIndex = Math.max(0, activeConsumables.length - visibleRows);
+        this.consumableScrollIndex = PhaserMath.Clamp(this.consumableScrollIndex, 0, maxScrollIndex);
+
+        const listBg = this.add.rectangle(listX, listY, listWidth, listHeight, 0x12121f, 0.65).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x30304c);
+        elements.push(listBg);
+
+        const listHitArea = this.add.rectangle(listX, listY, listWidth, listHeight, 0x000000, 0.01).setOrigin(0).setDepth(202).setInteractive();
+        elements.push(listHitArea);
+
+        const empty = this.add.text(512, listY + listHeight / 2, '暂无消耗品', { fontSize: '14px', color: '#95a5a6' }).setOrigin(0.5).setDepth(205);
+        elements.push(empty);
+
+        const categoryColors: Record<string, number> = { potion: 0x2ecc71, scroll: 0x3498db, elixir: 0x9b59b6 };
+        const rowConsumables: Array<Consumable | null> = [];
+        const rows = Array.from({ length: visibleRows }, (_, rowIndex) => {
+            const cy = listY + rowIndex * rowHeight;
+            const rowBg = this.add.rectangle(listX, cy, listWidth, 40, 0x2a2a3e).setOrigin(0).setDepth(203).setStrokeStyle(1, 0x4a4a6a);
+            const dot = this.add.rectangle(295, cy + 10, 8, 8, 0xffffff).setDepth(205);
+            const nameText = this.add.text(310, cy + 5, '', { fontSize: '13px', color: '#ffffff' }).setDepth(205);
+            const descText = this.add.text(310, cy + 22, '', { fontSize: '10px', color: '#95a5a6' }).setDepth(205);
+            const useBtn = this.add.text(700, cy + 10, '[使用]', { fontSize: '12px', color: '#3498db' }).setDepth(206).setInteractive();
+            useBtn.on('pointerdown', () => {
+                const cons = rowConsumables[rowIndex];
+                if (!cons) return;
+
+                const result = useConsumable(cons, this.character, this.activeBuffs, Date.now(), this.getCurrentStatBonuses());
+                this.log(result.message);
+                if (result.success) {
+                    this.consumables = this.consumables.filter(c => c.count > 0);
+                }
+                this.openConsumablePanel();
+            });
+            elements.push(rowBg, dot, nameText, descText, useBtn);
+            return { rowBg, dot, nameText, descText, useBtn };
+        });
+
+        const scrollTrackX = 754;
+        const scrollTrackTop = listY + 28;
+        const scrollTrackHeight = listHeight - 56;
+        const scrollTrack = this.add.rectangle(scrollTrackX, scrollTrackTop + scrollTrackHeight / 2, 8, scrollTrackHeight, 0x30304c).setDepth(205).setInteractive();
+        const scrollThumb = this.add.rectangle(scrollTrackX, scrollTrackTop, 14, 36, 0x74b9ff, 0.8).setDepth(206).setInteractive({ useHandCursor: true });
+        const upBtn = this.add.text(scrollTrackX, listY + 2, '▲', { fontSize: '16px', color: '#555555' }).setOrigin(0.5, 0).setDepth(205).setInteractive();
+        const downBtn = this.add.text(scrollTrackX, listY + listHeight - 20, '▼', { fontSize: '16px', color: '#555555' }).setOrigin(0.5, 0).setDepth(205).setInteractive();
+        const pageText = this.add.text(700, listY + listHeight + 4, '', { fontSize: '11px', color: '#95a5a6' }).setOrigin(1, 0).setDepth(205);
+        elements.push(scrollTrack, scrollThumb, upBtn, downBtn, pageText);
+
+        const renderConsumableRows = (): void => {
+            maxScrollIndex = Math.max(0, activeConsumables.length - visibleRows);
+            this.consumableScrollIndex = PhaserMath.Clamp(this.consumableScrollIndex, 0, maxScrollIndex);
+            empty.setVisible(activeConsumables.length === 0);
+
+            const hasScroll = maxScrollIndex > 0;
+            scrollTrack.setVisible(hasScroll);
+            scrollThumb.setVisible(hasScroll);
+            upBtn.setVisible(hasScroll);
+            downBtn.setVisible(hasScroll);
+            pageText.setVisible(hasScroll);
+
+            rows.forEach((row, rowIndex) => {
+                const cons = activeConsumables[this.consumableScrollIndex + rowIndex] ?? null;
+                rowConsumables[rowIndex] = cons;
+                const visible = cons !== null;
+                row.rowBg.setVisible(visible);
+                row.dot.setVisible(visible);
+                row.nameText.setVisible(visible);
+                row.descText.setVisible(visible);
+                row.useBtn.setVisible(visible);
+                if (!cons) return;
+
+                const def = CONSUMABLE_DEFS[cons.type];
+                row.dot.setFillStyle(categoryColors[def.category] ?? 0xffffff);
+                row.nameText.setText(`${def.name} x${cons.count}`);
+                row.descText.setText(def.description);
+            });
+
+            if (!hasScroll) return;
+
+            const thumbHeight = Math.max(36, (visibleRows / activeConsumables.length) * scrollTrackHeight);
+            const thumbTravel = scrollTrackHeight - thumbHeight;
+            const visibleCount = rows.filter((_, rowIndex) => rowConsumables[rowIndex] !== null).length;
+            scrollThumb.height = thumbHeight;
+            scrollThumb.y = scrollTrackTop + thumbHeight / 2 + (this.consumableScrollIndex / maxScrollIndex) * thumbTravel;
+            upBtn.setColor(this.consumableScrollIndex > 0 ? '#74b9ff' : '#555555');
+            downBtn.setColor(this.consumableScrollIndex < maxScrollIndex ? '#74b9ff' : '#555555');
+            pageText.setText(`${this.consumableScrollIndex + 1}-${this.consumableScrollIndex + visibleCount}/${activeConsumables.length}`);
+        };
+
+        const updateConsumableScrollIndex = (index: number): void => {
+            const nextIndex = PhaserMath.Clamp(Math.round(index), 0, Math.max(0, maxScrollIndex));
+            if (nextIndex === this.consumableScrollIndex) return;
+            this.consumableScrollIndex = nextIndex;
+            renderConsumableRows();
+        };
+
+        listHitArea.on('wheel', (_pointer: Phaser.Input.Pointer, _deltaX: number, deltaY: number) => {
+            if (maxScrollIndex <= 0) return;
+            updateConsumableScrollIndex(this.consumableScrollIndex + (deltaY > 0 ? 1 : -1));
+        });
+
+        upBtn.on('pointerdown', () => updateConsumableScrollIndex(this.consumableScrollIndex - 1));
+        downBtn.on('pointerdown', () => updateConsumableScrollIndex(this.consumableScrollIndex + 1));
+        scrollTrack.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            if (maxScrollIndex <= 0) return;
+            const trackBounds = scrollTrack.getBounds();
+            const ratio = PhaserMath.Clamp((pointer.worldY - trackBounds.top) / trackBounds.height, 0, 1);
+            updateConsumableScrollIndex(ratio * maxScrollIndex);
+        });
+        scrollThumb.on('dragstart', () => {
+            scrollThumb.setFillStyle(0x9ac3e8, 0.95);
+        });
+        scrollThumb.on('drag', (pointer: Phaser.Input.Pointer) => {
+            if (maxScrollIndex <= 0) return;
+            const thumbHeight = scrollThumb.height;
+            const minY = scrollTrackTop + thumbHeight / 2;
+            const maxY = scrollTrackTop + scrollTrackHeight - thumbHeight / 2;
+            const deltaY = pointer.worldY - pointer.prevPosition.y;
+            scrollThumb.y = PhaserMath.Clamp(scrollThumb.y + deltaY, minY, maxY);
+
+            const thumbTravel = Math.max(1, scrollTrackHeight - thumbHeight);
+            const ratio = PhaserMath.Clamp((scrollThumb.y - scrollTrackTop - thumbHeight / 2) / thumbTravel, 0, 1);
+            updateConsumableScrollIndex(ratio * maxScrollIndex);
+        });
+        scrollThumb.on('dragend', () => {
+            scrollThumb.setFillStyle(0x74b9ff, 0.8);
+        });
+        this.input.setDraggable(scrollThumb, true);
+        renderConsumableRows();
 
         const panelRect: PanelRect = { x: 250, y: 80, width: 524, height: 580 };
         this.createManagedPanel(elements, panelRect, panelBg);
