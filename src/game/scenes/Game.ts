@@ -204,6 +204,28 @@ const LOOT_PICKUP_DELAY = 300;
 const REST_THRESHOLD = 0.3;
 const REST_RECOVERY_RATE = 0.05;
 const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
+const DUNGEON1_WALLS_FLOOR_TILESET_NAME = 'walls_floor';
+const DUNGEON1_PRIMARY_FLOOR_TILE_ID = 139;
+const DUNGEON1_FLOOR_PATCH_TILE_IDS = {
+    topLeft: 229,
+    topRight: 230,
+    bottomLeft: 246,
+    bottomRight: 247,
+} as const;
+const DUNGEON1_FLOOR_PATCH_RATIO = 0.05;
+const DUNGEON1_TILESET_TEXTURE_KEYS = {
+    cracked_tiles: 'dungeon1-cracked-walls',
+    cracked_tiles_floor: 'dungeon1-cracked-floor',
+    walls_floor: 'dungeon1-walls-floor',
+    Water_coasts_animation: 'dungeon1-water-coasts',
+    Water_detilazation: 'dungeon1-water-details',
+    Water_coasts_animation_decorative_cracks: 'dungeon1-cracked-coasts',
+    fire_animation: 'dungeon1-fire-1',
+    fire_animation2: 'dungeon1-fire-2',
+    doors_lever_chest_animation: 'dungeon1-doors',
+    Objects: 'dungeon1-objects',
+    trap_animation: 'dungeon1-traps',
+} as const;
 
 type ManualMoveDirection = 'up' | 'down' | 'left' | 'right';
 type ProjectileClass = 'ranger' | 'mage';
@@ -259,6 +281,8 @@ interface MonsterVisualState {
     facingLeft: boolean;
     state: EnemyAnimState;
 }
+
+type DungeonFloorLayer = Phaser.Tilemaps.TilemapLayer | Phaser.Tilemaps.TilemapGPULayer;
 
 const PLAYER_PROJECTILE_SPEED: Record<ProjectileClass, number> = {
     ranger: 320,
@@ -346,6 +370,8 @@ export class Game extends Scene {
 
     // 地牢装饰
     floorTiles: Phaser.GameObjects.Rectangle[] = [];
+    dungeonFloorTilemap: Phaser.Tilemaps.Tilemap | null = null;
+    dungeonFloorLayers: DungeonFloorLayer[] = [];
 
     // 自动保存
     autoSaveManager!: AutoSaveManager;
@@ -521,17 +547,10 @@ export class Game extends Scene {
         const zone = getZoneForFloor(this.dungeon.currentFloor);
         this.cameras.main.setBackgroundColor(zone.backgroundColor);
 
+        this.clearDungeonFloorTilemap();
         this.floorTiles.forEach(t => t.destroy());
         this.floorTiles = [];
-
-        const tileSize = 64;
-        for (let x = 0; x < DUNGEON_WIDTH; x += tileSize) {
-            for (let y = 0; y < DUNGEON_HEIGHT; y += tileSize) {
-                const shade = PhaserMath.Between(20, 35);
-                const tile = this.add.rectangle(x + tileSize / 2, y + tileSize / 2, tileSize - 2, tileSize - 2, shade << 16 | shade << 8 | shade);
-                this.floorTiles.push(tile);
-            }
-        }
+        this.createDungeonFloorTilemap();
     }
 
     // ─── 角色渲染 ───
@@ -1783,6 +1802,76 @@ export class Game extends Scene {
         });
     }
 
+    private clearDungeonFloorTilemap() {
+        this.dungeonFloorLayers.forEach((layer) => layer.destroy());
+        this.dungeonFloorLayers = [];
+        this.dungeonFloorTilemap = null;
+    }
+
+    private createDungeonFloorTilemap() {
+        const tileWidth = 16;
+        const tileHeight = 16;
+        const columns = Math.ceil(DUNGEON_WIDTH / tileWidth);
+        const rows = Math.ceil(DUNGEON_HEIGHT / tileHeight);
+        const data = Array.from({ length: rows }, () =>
+            Array.from({ length: columns }, () => DUNGEON1_PRIMARY_FLOOR_TILE_ID),
+        );
+        const totalTiles = rows * columns;
+        const patchCount = Math.max(1, Math.floor((totalTiles * DUNGEON1_FLOOR_PATCH_RATIO) / 4));
+        const occupiedPatches = new Set<string>();
+        let placedPatches = 0;
+        let attempts = 0;
+        const maxAttempts = patchCount * 12;
+
+        while (placedPatches < patchCount && attempts < maxAttempts) {
+            attempts += 1;
+
+            const patchX = PhaserMath.Between(0, columns - 2);
+            const patchY = PhaserMath.Between(0, rows - 2);
+            const patchKey = `${patchX},${patchY}`;
+
+            if (occupiedPatches.has(patchKey)) {
+                continue;
+            }
+
+            occupiedPatches.add(patchKey);
+            data[patchY][patchX] = DUNGEON1_FLOOR_PATCH_TILE_IDS.topLeft;
+            data[patchY][patchX + 1] = DUNGEON1_FLOOR_PATCH_TILE_IDS.topRight;
+            data[patchY + 1][patchX] = DUNGEON1_FLOOR_PATCH_TILE_IDS.bottomLeft;
+            data[patchY + 1][patchX + 1] = DUNGEON1_FLOOR_PATCH_TILE_IDS.bottomRight;
+            placedPatches += 1;
+        }
+
+        const map = this.make.tilemap({
+            data,
+            tileWidth,
+            tileHeight,
+        });
+        this.dungeonFloorTilemap = map;
+
+        const tileset = map.addTilesetImage(
+            DUNGEON1_WALLS_FLOOR_TILESET_NAME,
+            DUNGEON1_TILESET_TEXTURE_KEYS.walls_floor,
+            tileWidth,
+            tileHeight,
+            0,
+            0,
+            1,
+        );
+
+        if (!tileset) {
+            return;
+        }
+
+        const offsetX = Math.floor((DUNGEON_WIDTH - columns * tileWidth) / 2);
+        const offsetY = Math.floor((DUNGEON_HEIGHT - rows * tileHeight) / 2);
+        const layer = map.createLayer(0, tileset, offsetX, offsetY);
+        if (layer) {
+            layer.setDepth(DEPTH.WORLD_TILE);
+            this.dungeonFloorLayers.push(layer);
+        }
+    }
+
     private updatePlayerFacingFromMovement(movement: { x: number; y: number }) {
         if (Math.abs(movement.y) >= Math.abs(movement.x)) {
             this.playerFacing = movement.y < 0 ? 'up' : 'down';
@@ -2382,6 +2471,7 @@ export class Game extends Scene {
         }
 
         this.floorTiles.forEach(tile => tile.setVisible(visible));
+        this.dungeonFloorLayers.forEach((layer) => layer.setVisible(visible));
         this.monsterSprites.forEach(sprite => sprite.setVisible(visible));
         this.lootItems.forEach(item => item.sprite.setVisible(visible));
         this.playerProjectiles.forEach((projectile) => projectile.sprite.setVisible(visible));

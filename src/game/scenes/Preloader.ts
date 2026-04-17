@@ -20,6 +20,19 @@ import type { MonsterType } from '../models';
 
 const PLAYER_CLASSES: CharacterBaseClass[] = ['berserker', 'ranger', 'mage'];
 const ENEMY_TYPES: MonsterType[] = ['normal', 'elite', 'rare', 'boss'];
+const DUNGEON1_TILESET_IMAGES = [
+    ['dungeon1-cracked-walls', 'Tiled_files/decorative_cracks_walls.png'],
+    ['dungeon1-cracked-floor', 'Tiled_files/decorative_cracks_floor.png'],
+    ['dungeon1-walls-floor', 'Tiled_files/walls_floor.png'],
+    ['dungeon1-water-coasts', 'Tiled_files/Water_coasts_animation.png'],
+    ['dungeon1-water-details', 'Tiled_files/water_details_animation.png'],
+    ['dungeon1-cracked-coasts', 'Tiled_files/decorative_cracks_coasts_animation.png'],
+    ['dungeon1-fire-1', 'Tiled_files/fire_animation.png'],
+    ['dungeon1-fire-2', 'Tiled_files/fire_animation2.png'],
+    ['dungeon1-doors', 'Tiled_files/doors_lever_chest_animation.png'],
+    ['dungeon1-objects', 'Tiled_files/Objects.png'],
+    ['dungeon1-traps', 'Tiled_files/trap_animation.png'],
+] as const;
 
 export class Preloader extends Scene
 {
@@ -93,6 +106,11 @@ export class Preloader extends Scene
                     );
                 });
             });
+        });
+
+        this.load.tilemapTiledJSON('dungeon1-map', 'Tiled_files/Dungeon1.json');
+        DUNGEON1_TILESET_IMAGES.forEach(([key, path]) => {
+            this.load.image(key, path);
         });
     }
 
