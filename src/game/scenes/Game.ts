@@ -1915,7 +1915,7 @@ export class Game extends Scene {
         if (!bodySprite) return;
 
         bodySprite.setTint(0xffffff);
-        this.time.delayedCall(100, () => {
+        this.time.delayedCall(60, () => {
             if (bodySprite && bodySprite.active) {
                 bodySprite.clearTint();
             }
@@ -1961,13 +1961,13 @@ export class Game extends Scene {
 
     /** Boss技能预警圆环 */
     private showSkillWarning(x: number, y: number, radius: number, color: number, duration: number) {
-        const circle = this.add.circle(x, y, 0, color, 0.3)
+        const circle = this.add.circle(x, y, 0, color, 0.2)
             .setDepth(DEPTH.WORLD_SKILL_WARNING);
 
         this.tweens.add({
             targets: circle,
             radius: radius,
-            alpha: 0.6,
+            alpha: 0.35,
             duration: duration,
             onComplete: () => circle.destroy(),
         });
