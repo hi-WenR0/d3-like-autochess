@@ -102,7 +102,8 @@ export const CONSUMABLE_DEFS: Record<ConsumableType, ConsumableDef> = {
 export interface ActiveBuff {
     type: ConsumableType;
     name: string;
-    stat: string;       // 'atk' | 'def' | 'attackSpeed' | 'critRate' | 'dropRate'
+    sourceId?: string;
+    stat: string;       // 'atk' | 'def' | 'attackSpeed' | 'critRate' | 'dropRate' | 'moveSpeed'
     value: number;      // 增益值（百分比）
     endTime: number;    // 到期时间戳(ms)
 }

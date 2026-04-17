@@ -23,9 +23,9 @@ export type SkillCastCondition =
 export type SkillEffect =
     | { type: 'damage'; multiplier: number }
     | { type: 'heal'; ratio: number }
-    | { type: 'buff'; stat: 'atk' | 'def' | 'attackSpeed' | 'critRate'; value: number; durationMs: number }
+    | { type: 'buff'; stat: 'atk' | 'def' | 'attackSpeed' | 'critRate' | 'moveSpeed'; value: number; durationMs: number }
     | { type: 'execute'; threshold: number; bonusMultiplier: number }
-    | { type: 'passiveStat'; stat: 'atk' | 'def' | 'maxHp' | 'critRate' | 'critDamage' | 'moveSpeed'; value: number };
+    | { type: 'passiveStat'; stat: 'atk' | 'def' | 'maxHp' | 'attackSpeedPct' | 'critRate' | 'critDamage' | 'moveSpeed'; value: number };
 
 export interface SkillDefinition {
     id: string;
@@ -91,6 +91,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         damageMultiplier: 1,
     },
     {
+        id: 'berserker-last-stand',
+        label: '濒死反击',
+        description: '生命危急时自动反击并回复少量生命。',
+        type: 'trigger',
+        slot: 'trigger',
+        requiredClass: 'berserker',
+        unlockLevel: 13,
+        cooldownMs: 12000,
+        priority: 90,
+        conditions: [{ type: 'playerHpBelow', ratio: 0.35 }],
+        effects: [{ type: 'damage', multiplier: 1.5 }, { type: 'heal', ratio: 0.05 }],
+        tags: ['trigger', 'heal', 'melee'],
+        damageMultiplier: 1.5,
+        healRatio: 0.05,
+    },
+    {
         id: 'ranger-volley',
         label: '穿风箭',
         description: '游侠精准射击，提升暴击率与伤害。',
@@ -124,6 +140,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         ],
         tags: ['passive', 'crit'],
         damageMultiplier: 1,
+    },
+    {
+        id: 'ranger-disengage-shot',
+        label: '近身脱离',
+        description: '敌人靠近时自动射击并短暂提升移动速度。',
+        type: 'trigger',
+        slot: 'trigger',
+        requiredClass: 'ranger',
+        unlockLevel: 13,
+        cooldownMs: 10000,
+        priority: 90,
+        conditions: [{ type: 'targetInRange', range: 90 }],
+        effects: [{ type: 'damage', multiplier: 1.2 }, { type: 'buff', stat: 'moveSpeed', value: 25, durationMs: 4000 }],
+        tags: ['trigger', 'ranged', 'mobility'],
+        damageMultiplier: 1.2,
+        critRateBonus: 10,
     },
     {
         id: 'mage-burst',
@@ -160,6 +192,21 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         damageMultiplier: 1,
     },
     {
+        id: 'mage-arcane-shield',
+        label: '奥术护盾',
+        description: '生命偏低且护盾未激活时自动施放，短暂提升防御。',
+        type: 'trigger',
+        slot: 'trigger',
+        requiredClass: 'mage',
+        unlockLevel: 13,
+        cooldownMs: 15000,
+        priority: 90,
+        conditions: [{ type: 'playerHpBelow', ratio: 0.45 }, { type: 'missingBuff', buffId: 'mage-arcane-shield' }],
+        effects: [{ type: 'damage', multiplier: 1.0 }, { type: 'buff', stat: 'def', value: 30, durationMs: 6000 }],
+        tags: ['trigger', 'shield', 'arcane'],
+        damageMultiplier: 1.0,
+    },
+    {
         id: 'slayer-execute',
         label: '处刑突袭',
         description: '屠戮者对濒危目标发动更致命一击。',
@@ -175,6 +222,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['execute', 'specialization'],
         damageMultiplier: 2.1,
         critDamageBonus: 25,
+    },
+    {
+        id: 'slayer-fatal-instinct',
+        label: '终结本能',
+        description: '强化屠戮者的处刑节奏，提升攻击和暴击伤害。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'berserker',
+        requiredSpecialization: 'slayer',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'atk', value: 8 }, { type: 'passiveStat', stat: 'critDamage', value: 15 }],
+        tags: ['passive', 'execute'],
+        damageMultiplier: 1,
     },
     {
         id: 'warlord-banner',
@@ -194,6 +257,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         healRatio: 0.05,
     },
     {
+        id: 'warlord-command-aura',
+        label: '统帅号令',
+        description: '战吼统帅维持压场姿态，提升生命和防御。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'berserker',
+        requiredSpecialization: 'warlord',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'maxHp', value: 50 }, { type: 'passiveStat', stat: 'def', value: 5 }],
+        tags: ['passive', 'guard'],
+        damageMultiplier: 1,
+    },
+    {
         id: 'bloodguard-rage',
         label: '血怒反斩',
         description: '血怒守卫斩击后回复部分生命。',
@@ -209,6 +288,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'heal'],
         damageMultiplier: 1.8,
         healRatio: 0.08,
+    },
+    {
+        id: 'bloodguard-sanguine-wall',
+        label: '猩红壁垒',
+        description: '血怒守卫强化站场能力，提升生命和防御。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'berserker',
+        requiredSpecialization: 'bloodguard',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'maxHp', value: 60 }, { type: 'passiveStat', stat: 'def', value: 4 }],
+        tags: ['passive', 'heal'],
+        damageMultiplier: 1,
     },
     {
         id: 'sharpshooter-headshot',
@@ -229,6 +324,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         critDamageBonus: 20,
     },
     {
+        id: 'sharpshooter-steady-aim',
+        label: '稳定瞄准',
+        description: '神射手保持精确射击姿态，提升暴击率和暴击伤害。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'ranger',
+        requiredSpecialization: 'sharpshooter',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'critRate', value: 5 }, { type: 'passiveStat', stat: 'critDamage', value: 12 }],
+        tags: ['passive', 'crit'],
+        damageMultiplier: 1,
+    },
+    {
         id: 'trapper-burst',
         label: '诱捕爆发',
         description: '陷阱大师引爆陷阱造成爆发伤害。',
@@ -244,6 +355,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'control'],
         damageMultiplier: 1.75,
         critRateBonus: 12,
+    },
+    {
+        id: 'trapper-fieldcraft',
+        label: '战场布控',
+        description: '陷阱大师优化战斗节奏，提升攻速和防御。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'ranger',
+        requiredSpecialization: 'trapper',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'attackSpeedPct', value: 8 }, { type: 'passiveStat', stat: 'def', value: 3 }],
+        tags: ['passive', 'control'],
+        damageMultiplier: 1,
     },
     {
         id: 'beastmaster-hunt',
@@ -263,6 +390,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         healRatio: 0.05,
     },
     {
+        id: 'beastmaster-pack-instinct',
+        label: '兽群本能',
+        description: '兽王猎手保持追猎节奏，提升攻击和移动速度。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'ranger',
+        requiredSpecialization: 'beastmaster',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'atk', value: 5 }, { type: 'passiveStat', stat: 'moveSpeed', value: 8 }],
+        tags: ['passive', 'summon'],
+        damageMultiplier: 1,
+    },
+    {
         id: 'elementalist-flare',
         label: '元素耀斑',
         description: '元素术士引爆元素能量，强化暴击伤害。',
@@ -278,6 +421,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'elemental'],
         damageMultiplier: 1.95,
         critDamageBonus: 28,
+    },
+    {
+        id: 'elementalist-resonance',
+        label: '元素共鸣',
+        description: '元素术士强化元素爆发，提升攻击和暴击伤害。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'mage',
+        requiredSpecialization: 'elementalist',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'atk', value: 7 }, { type: 'passiveStat', stat: 'critDamage', value: 15 }],
+        tags: ['passive', 'elemental'],
+        damageMultiplier: 1,
     },
     {
         id: 'arcanist-surge',
@@ -297,6 +456,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         critRateBonus: 18,
     },
     {
+        id: 'arcanist-flow',
+        label: '奥术流转',
+        description: '奥术学者维持高频施法，提升攻击和暴击率。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'mage',
+        requiredSpecialization: 'arcanist',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'atk', value: 5 }, { type: 'passiveStat', stat: 'critRate', value: 4 }],
+        tags: ['passive', 'arcane'],
+        damageMultiplier: 1,
+    },
+    {
         id: 'summoner-command',
         label: '先知敕令',
         description: '召唤先知以先知印记轰击目标并回复生命。',
@@ -312,6 +487,22 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['specialization', 'summon'],
         damageMultiplier: 1.85,
         healRatio: 0.07,
+    },
+    {
+        id: 'summoner-covenant',
+        label: '先知契约',
+        description: '召唤先知强化持续压制，提升生命和攻击。',
+        type: 'passive',
+        slot: 'passive',
+        requiredClass: 'mage',
+        requiredSpecialization: 'summoner',
+        unlockLevel: 15,
+        cooldownMs: 0,
+        priority: 0,
+        conditions: [{ type: 'always' }],
+        effects: [{ type: 'passiveStat', stat: 'maxHp', value: 40 }, { type: 'passiveStat', stat: 'atk', value: 6 }],
+        tags: ['passive', 'summon'],
+        damageMultiplier: 1,
     },
 ];
 
@@ -332,6 +523,34 @@ export function getDefaultSpecializationSkill(char: CharacterData): SkillDefinit
         skill.requiredClass === char.baseClass &&
         skill.requiredSpecialization === char.specialization &&
         skill.slot === 'specializationActive',
+    ) ?? null;
+}
+
+export function getDefaultPassiveSkill(char: Pick<CharacterData, 'baseClass' | 'specialization' | 'level'>): SkillDefinition | null {
+    return CLASS_SKILLS.find((skill) =>
+        skill.requiredClass === char.baseClass &&
+        skill.requiredSpecialization === undefined &&
+        skill.type === 'passive' &&
+        char.level >= skill.unlockLevel,
+    ) ?? null;
+}
+
+export function getDefaultSpecializationPassiveSkill(char: CharacterData): SkillDefinition | null {
+    if (!char.specialization) return null;
+    return CLASS_SKILLS.find((skill) =>
+        skill.requiredClass === char.baseClass &&
+        skill.requiredSpecialization === char.specialization &&
+        skill.type === 'passive' &&
+        char.level >= skill.unlockLevel,
+    ) ?? null;
+}
+
+export function getDefaultTriggerSkill(char: Pick<CharacterData, 'baseClass' | 'level'>): SkillDefinition | null {
+    return CLASS_SKILLS.find((skill) =>
+        skill.requiredClass === char.baseClass &&
+        skill.requiredSpecialization === undefined &&
+        skill.slot === 'trigger' &&
+        char.level >= skill.unlockLevel,
     ) ?? null;
 }
 
@@ -382,6 +601,18 @@ export function normalizeSkillLoadout(char: CharacterData): SkillLoadout {
     if (char.specialization && !normalized.specializationActive) {
         normalized.specializationActive = getDefaultSpecializationSkill(char)?.id ?? null;
     }
+    if (!normalized.passive1) {
+        normalized.passive1 = getDefaultPassiveSkill(char)?.id ?? null;
+    }
+    if (!normalized.passive2) {
+        const specializationPassive = getDefaultSpecializationPassiveSkill(char);
+        if (specializationPassive?.id !== normalized.passive1) {
+            normalized.passive2 = specializationPassive?.id ?? null;
+        }
+    }
+    if (!normalized.trigger) {
+        normalized.trigger = getDefaultTriggerSkill(char)?.id ?? null;
+    }
     if (normalized.passive1 && normalized.passive1 === normalized.passive2) {
         normalized.passive2 = null;
     }
@@ -428,9 +659,10 @@ export function getSkillPassiveBonuses(char: CharacterData): {
     def: number;
     critRate: number;
     critDamage: number;
+    attackSpeedPct: number;
     moveSpeed: number;
 } {
-    const result = { hp: 0, atk: 0, def: 0, critRate: 0, critDamage: 0, moveSpeed: 0 };
+    const result = { hp: 0, atk: 0, def: 0, critRate: 0, critDamage: 0, attackSpeedPct: 0, moveSpeed: 0 };
     const loadout = normalizeSkillLoadout(char);
     const passiveIds = [loadout.passive1, loadout.passive2];
     for (const passiveId of passiveIds) {
@@ -440,6 +672,8 @@ export function getSkillPassiveBonuses(char: CharacterData): {
             if (effect.type !== 'passiveStat') continue;
             if (effect.stat === 'maxHp') {
                 result.hp += effect.value;
+            } else if (effect.stat === 'attackSpeedPct') {
+                result.attackSpeedPct += effect.value;
             } else {
                 result[effect.stat] += effect.value;
             }

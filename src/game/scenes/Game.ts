@@ -144,6 +144,11 @@ import {
     canBuyMore,
 } from '../systems/shop-system';
 import {
+    canCastSkill,
+    skillConditionSummary,
+    skillTagsSummary,
+} from '../systems/skill-system';
+import {
     type Consumable,
     type ConsumableType,
     type ActiveBuff,
@@ -271,6 +276,7 @@ export class Game extends Scene {
     atkText!: Phaser.GameObjects.Text;
     defText!: Phaser.GameObjects.Text;
     buffText!: Phaser.GameObjects.Text;
+    skillStatusText!: Phaser.GameObjects.Text;
 
     // UI 面板
     uiPanel: Phaser.GameObjects.Container | null = null;
@@ -1568,6 +1574,7 @@ export class Game extends Scene {
         this.skillCooldowns[skill.id] = time + skill.cooldownMs;
         this.triggerPlayerAttackAnimation();
         const result = playerUseSkillOnMonster(this.character, monster, this.affixEffects, skill, stats);
+        const sideEffectLines = this.applySkillSideEffects(skill);
         this.showDamageNumber(monster.x, monster.y - 44, result.damageDealt, result.isCrit, ` ${result.skillName}`);
 
         if (result.specializationHeal > 0) {
@@ -1578,29 +1585,77 @@ export class Game extends Scene {
             this.onMonsterKilled(monster, result);
         } else {
             this.updateMonsterHpBar(monster);
-            this.log(`释放技能：${result.skillName}`);
+            const sideEffects = sideEffectLines.length > 0 ? ` · ${sideEffectLines.join(' / ')}` : '';
+            this.log(`释放技能：${result.skillName}（${this.describeSkillTrigger(skill)}）${sideEffects}`);
         }
 
         return true;
     }
 
     private canAutoCastSkill(skill: SkillDefinition, monster: Monster, stats: ReturnType<Game['getCurrentStats']>): boolean {
-        return skill.conditions.every((condition) => {
-            switch (condition.type) {
-                case 'always':
-                    return true;
-                case 'targetHpBelow':
-                    return monster.stats.maxHp > 0 && monster.stats.hp / monster.stats.maxHp <= condition.ratio;
-                case 'playerHpBelow':
-                    return stats.maxHp > 0 && this.character.baseStats.hp / stats.maxHp <= condition.ratio;
-                case 'enemyCountNearby':
-                    return this.countMonstersNearPlayer(condition.radius) >= condition.count;
-                case 'targetInRange':
-                    return PhaserMath.Distance.Between(this.playerSprite.x, this.playerSprite.y, monster.x, monster.y) <= condition.range;
-                case 'missingBuff':
-                    return !this.activeBuffs.some((buff) => buff.name === condition.buffId);
-            }
+        const distanceToTarget = PhaserMath.Distance.Between(this.playerSprite.x, this.playerSprite.y, monster.x, monster.y);
+        return canCastSkill(skill, {
+            character: this.character,
+            monster,
+            stats,
+            activeBuffs: this.activeBuffs,
+            distanceToTarget,
+            nearbyEnemyCount: (radius) => this.countMonstersNearPlayer(radius),
         });
+    }
+
+    private applySkillSideEffects(skill: SkillDefinition): string[] {
+        const lines: string[] = [];
+        const now = Date.now();
+        for (const effect of skill.effects) {
+            if (effect.type !== 'buff') continue;
+            const existing = this.activeBuffs.find((buff) => buff.sourceId === skill.id && buff.stat === effect.stat);
+            const endTime = now + effect.durationMs;
+            if (existing) {
+                existing.endTime = endTime;
+                existing.value = effect.value;
+            } else {
+                this.activeBuffs.push({
+                    type: 'elixirLuck',
+                    name: skill.label,
+                    sourceId: skill.id,
+                    stat: effect.stat,
+                    value: effect.value,
+                    endTime,
+                });
+            }
+            lines.push(`${this.skillBuffStatLabel(effect.stat)}+${effect.value}%`);
+        }
+        return lines;
+    }
+
+    private describeSkillTrigger(skill: SkillDefinition): string {
+        return skillConditionSummary(skill);
+    }
+
+    private skillBuffStatLabel(stat: string): string {
+        const labels: Record<string, string> = {
+            atk: '攻击',
+            def: '防御',
+            attackSpeed: '攻速',
+            critRate: '暴击',
+            moveSpeed: '移速',
+        };
+        return labels[stat] ?? stat;
+    }
+
+    private getSkillCooldownSummary(): string {
+        const skills = getAutoCastSkills(this.character);
+        if (skills.length === 0) {
+            return '技能: 未装备自动技能';
+        }
+
+        const now = this.time.now;
+        return `技能: ${skills.map((skill) => {
+            const nextReadyAt = this.skillCooldowns[skill.id] ?? 0;
+            const remaining = Math.max(0, Math.ceil((nextReadyAt - now) / 1000));
+            return remaining > 0 ? `${skill.label} ${remaining}s` : `${skill.label} 就绪`;
+        }).join('  |  ')}`;
     }
 
     private countMonstersNearPlayer(radius: number): number {
@@ -2024,6 +2079,9 @@ export class Game extends Scene {
         this.combatLog = this.add.text(20, hudY + 45, '', {
             fontSize: '11px', color: '#8e8e9e', wordWrap: { width: DUNGEON_WIDTH - 40 }, lineSpacing: 2,
         }).setDepth(DEPTH.HUD_INFO + 2);
+        this.skillStatusText = this.add.text(20, hudY + 86, '', {
+            fontSize: '10px', color: '#5dade2', wordWrap: { width: DUNGEON_WIDTH - 40 }, lineSpacing: 2,
+        }).setDepth(DEPTH.HUD_INFO + 2);
 
         // ─── 底部导航栏 ───
         const navY = hudY + HUD_HEIGHT - 32;
@@ -2096,6 +2154,7 @@ export class Game extends Scene {
         const potionCount = this.consumables.filter(c => CONSUMABLE_DEFS[c.type].category === 'potion').reduce((sum, c) => sum + c.count, 0);
         const potionStr = potionCount > 0 ? `药水:${potionCount}` : '';
         this.buffText.setText([potionStr, ...buffNames].filter(Boolean).join(' '));
+        this.skillStatusText.setText(this.getSkillCooldownSummary());
     }
 
     // ─── UI 面板系统 ───
@@ -2584,10 +2643,10 @@ export class Game extends Scene {
             hp: equipBonuses.hp + (specializationBonuses.hp ?? 0) + skillBonuses.hp,
             atk: equipBonuses.atk + buffBonuses.atk + (specializationBonuses.atk ?? 0) + skillBonuses.atk,
             def: equipBonuses.def + buffBonuses.def + (specializationBonuses.def ?? 0) + skillBonuses.def,
-            attackSpeedPct: equipBonuses.attackSpeed + buffBonuses.attackSpeed + (specializationBonuses.attackSpeedPct ?? 0),
+            attackSpeedPct: equipBonuses.attackSpeed + buffBonuses.attackSpeed + (specializationBonuses.attackSpeedPct ?? 0) + skillBonuses.attackSpeedPct,
             critRate: equipBonuses.critRate + buffBonuses.critRate + (specializationBonuses.critRate ?? 0) + skillBonuses.critRate,
             critDamage: equipBonuses.critDamage + (specializationBonuses.critDamage ?? 0) + skillBonuses.critDamage,
-            moveSpeed: equipBonuses.moveSpeed + (specializationBonuses.moveSpeed ?? 0) + skillBonuses.moveSpeed,
+            moveSpeed: equipBonuses.moveSpeed + buffBonuses.moveSpeed + (specializationBonuses.moveSpeed ?? 0) + skillBonuses.moveSpeed,
         };
     }
 
@@ -2683,7 +2742,7 @@ export class Game extends Scene {
             const desc = addBoundedText(this, {
                 x: 166,
                 y: y + 22,
-                content: skill ? `${this.skillTypeLabel(skill)} · ${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)}` : '从右侧已解锁技能中选择装备',
+                content: skill ? `${this.skillTypeLabel(skill)} · ${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)} · ${skillTagsSummary(skill)}` : '从右侧已解锁技能中选择装备',
                 width: 260,
                 height: 18,
                 minFontSize: 9,
@@ -2727,7 +2786,7 @@ export class Game extends Scene {
             const detail = addBoundedText(this, {
                 x: 498,
                 y: skillY + 22,
-                content: unlocked ? `${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)}` : this.skillLockedReason(skill),
+                content: unlocked ? `${this.skillConditionSummary(skill)} · ${this.skillEffectSummary(skill)} · ${skillTagsSummary(skill)}` : this.skillLockedReason(skill),
                 width: 218,
                 height: 18,
                 minFontSize: 9,
@@ -2792,22 +2851,14 @@ export class Game extends Scene {
     }
 
     private skillConditionSummary(skill: SkillDefinition): string {
-        const condition = skill.conditions[0];
-        switch (condition.type) {
-            case 'always': return '冷却就绪';
-            case 'targetHpBelow': return `目标HP≤${Math.round(condition.ratio * 100)}%`;
-            case 'playerHpBelow': return `自身HP≤${Math.round(condition.ratio * 100)}%`;
-            case 'enemyCountNearby': return `附近敌人≥${condition.count}`;
-            case 'targetInRange': return `距离≤${condition.range}`;
-            case 'missingBuff': return `缺少${condition.buffId}`;
-        }
+        return skillConditionSummary(skill);
     }
 
     private skillEffectSummary(skill: SkillDefinition): string {
         if (skill.type === 'passive') {
             return skill.effects
                 .filter((effect) => effect.type === 'passiveStat')
-                .map((effect) => `${this.passiveStatLabel(effect.stat)}+${effect.value}${effect.stat === 'critRate' || effect.stat === 'critDamage' ? '%' : ''}`)
+                .map((effect) => `${this.passiveStatLabel(effect.stat)}+${effect.value}${effect.stat === 'critRate' || effect.stat === 'critDamage' || effect.stat === 'attackSpeedPct' ? '%' : ''}`)
                 .join(' / ');
         }
 
@@ -2815,6 +2866,11 @@ export class Game extends Scene {
         if (skill.critRateBonus) parts.push(`暴击+${skill.critRateBonus}%`);
         if (skill.critDamageBonus) parts.push(`暴伤+${skill.critDamageBonus}%`);
         if (skill.healRatio) parts.push(`回血${Math.round(skill.healRatio * 100)}%`);
+        for (const effect of skill.effects) {
+            if (effect.type === 'buff') {
+                parts.push(`${this.skillBuffStatLabel(effect.stat)}+${effect.value}%`);
+            }
+        }
         return parts.join(' / ');
     }
 
@@ -2823,6 +2879,7 @@ export class Game extends Scene {
             atk: '攻击',
             def: '防御',
             maxHp: '生命',
+            attackSpeedPct: '攻速',
             critRate: '暴击',
             critDamage: '暴伤',
             moveSpeed: '移速',

@@ -129,8 +129,8 @@ export function updateBuffs(activeBuffs: ActiveBuff[], now: number): string[] {
 }
 
 /** 计算活跃增益的总属性加成 */
-export function getBuffBonuses(activeBuffs: ActiveBuff[]): { atk: number; def: number; attackSpeed: number; critRate: number; dropRate: number } {
-    const bonuses = { atk: 0, def: 0, attackSpeed: 0, critRate: 0, dropRate: 0 };
+export function getBuffBonuses(activeBuffs: ActiveBuff[]): { atk: number; def: number; attackSpeed: number; critRate: number; dropRate: number; moveSpeed: number } {
+    const bonuses = { atk: 0, def: 0, attackSpeed: 0, critRate: 0, dropRate: 0, moveSpeed: 0 };
 
     for (const buff of activeBuffs) {
         switch (buff.stat) {
@@ -139,6 +139,7 @@ export function getBuffBonuses(activeBuffs: ActiveBuff[]): { atk: number; def: n
             case 'attackSpeed': bonuses.attackSpeed += buff.value; break;
             case 'critRate': bonuses.critRate += buff.value; break;
             case 'dropRate': bonuses.dropRate += buff.value; break;
+            case 'moveSpeed': bonuses.moveSpeed += buff.value; break;
         }
     }
 
