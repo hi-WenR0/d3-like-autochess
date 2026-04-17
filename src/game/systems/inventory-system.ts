@@ -1,10 +1,12 @@
 import {
+    type CharacterBaseClass,
     type InventoryData as IInventoryData,
     type InventoryItem,
     type Equipment,
     type Rarity,
     type WearableSlot,
     INVENTORY_CAPACITY,
+    getAllowedClassesForEquipment,
 } from '../models';
 
 export type InventoryData = IInventoryData;
@@ -202,6 +204,31 @@ export function dismantleByRarity(inventory: InventoryData, maxRarity: Rarity): 
     const remain: InventoryItem[] = [];
     for (const item of inventory.items) {
         if (!item.locked && RARITY_ORDER[item.item.rarity] <= maxOrder) {
+            count += 1;
+            essence += dismantleValue(item.item);
+        } else {
+            remain.push(item);
+        }
+    }
+
+    if (count > 0) {
+        inventory.items = remain;
+        inventory.dismantleEssence += essence;
+    }
+
+    return { count, essence };
+}
+
+/** 手动拆解当前职业无法装备的装备 */
+export function dismantleUnequippable(inventory: InventoryData, baseClass: CharacterBaseClass): { count: number; essence: number } {
+    let count = 0;
+    let essence = 0;
+
+    const remain: InventoryItem[] = [];
+    for (const item of inventory.items) {
+        const allowedClasses = getAllowedClassesForEquipment(item.item);
+        const cannotEquip = allowedClasses !== undefined && !allowedClasses.includes(baseClass);
+        if (!item.locked && cannotEquip) {
             count += 1;
             essence += dismantleValue(item.item);
         } else {

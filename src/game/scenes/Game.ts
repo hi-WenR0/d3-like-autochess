@@ -88,6 +88,7 @@ import {
     autoDismantleLowestLevelItems,
     dismantleOne,
     dismantleByRarity,
+    dismantleUnequippable,
     normalizeInventoryData,
     removeItem,
     isFull,
@@ -3510,6 +3511,24 @@ export class Game extends Scene {
             elements.push(btn);
             dy += 22;
         }
+
+        const unequippableBtn = this.add.text(130, dy, '[拆不可用]', {
+            fontSize: '12px',
+            color: canDismantle ? '#e74c3c' : '#555555',
+        }).setDepth(202).setInteractive({ useHandCursor: canDismantle });
+        if (canDismantle) {
+            unequippableBtn.on('pointerdown', () => {
+                const result = dismantleUnequippable(this.inventory, this.character.baseClass);
+                if (result.count > 0) {
+                    this.log(`拆解 ${result.count} 件当前职业无法装备的装备，获得 ${result.essence} 精华`);
+                } else {
+                    this.log('没有当前职业无法装备的未锁定装备');
+                }
+                this.openInventoryPanel();
+            });
+        }
+        elements.push(unequippableBtn);
+        dy += 22;
 
         const autoTitle = this.add.text(130, dy + 8, '自动拆解:', { fontSize: '14px', color: '#e67e22' }).setDepth(202);
         elements.push(autoTitle);
