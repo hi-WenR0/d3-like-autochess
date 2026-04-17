@@ -1,4 +1,4 @@
-import { Math as PhaserMath, Scene } from 'phaser';
+import { Geom, Math as PhaserMath, Scene } from 'phaser';
 import {
     type CharacterData,
     type CharacterBaseClass,
@@ -206,11 +206,19 @@ const REST_RECOVERY_RATE = 0.05;
 const VIEWPORT_HEIGHT = DUNGEON_HEIGHT + HUD_HEIGHT;
 const DUNGEON1_WALLS_FLOOR_TILESET_NAME = 'walls_floor';
 const DUNGEON1_PRIMARY_FLOOR_TILE_ID = 139;
-const DUNGEON1_FLOOR_PATCH_TILE_IDS = {
-    topLeft: 229,
-    topRight: 230,
-    bottomLeft: 246,
-    bottomRight: 247,
+const DUNGEON1_FLOOR_PATCH_TILE_PAIRS = [
+    [229, 230],
+    [246, 247],
+] as const;
+const DUNGEON1_WALL_BORDER_TILE_IDS = {
+    topLeft: 23,
+    top: 24,
+    topRight: 25,
+    right: 42,
+    bottomRight: 76,
+    bottom: 75,
+    bottomLeft: 74,
+    left: 57,
 } as const;
 const DUNGEON1_FLOOR_PATCH_RATIO = 0.05;
 const DUNGEON1_TILESET_TEXTURE_KEYS = {
@@ -283,6 +291,15 @@ interface MonsterVisualState {
 }
 
 type DungeonFloorLayer = Phaser.Tilemaps.TilemapLayer | Phaser.Tilemaps.TilemapGPULayer;
+type DungeonObjectLayer = Phaser.Tilemaps.TilemapLayer | Phaser.Tilemaps.TilemapGPULayer;
+
+interface DungeonObstacleDefinition {
+    key: string;
+    width: number;
+    height: number;
+    tiles: Array<{ x: number; y: number; tileId: number }>;
+    collider: { x: number; y: number; width: number; height: number };
+}
 
 const PLAYER_PROJECTILE_SPEED: Record<ProjectileClass, number> = {
     ranger: 320,
@@ -372,10 +389,14 @@ export class Game extends Scene {
     floorTiles: Phaser.GameObjects.Rectangle[] = [];
     dungeonFloorTilemap: Phaser.Tilemaps.Tilemap | null = null;
     dungeonFloorLayers: DungeonFloorLayer[] = [];
+    dungeonObjectTilemap: Phaser.Tilemaps.Tilemap | null = null;
+    dungeonObjectLayers: DungeonObjectLayer[] = [];
+    dungeonObstacleBodies: Phaser.GameObjects.Rectangle[] = [];
 
     // 自动保存
     autoSaveManager!: AutoSaveManager;
     enemyCollisionCollider: Phaser.Physics.Arcade.Collider | null = null;
+    enemyObstacleCollider: Phaser.Physics.Arcade.Collider | null = null;
     nextContactDamageAt: Map<string, number> = new Map();
 
     private panelDragContext: PanelDragContext | null = null;
@@ -1326,6 +1347,10 @@ export class Game extends Scene {
         this.monsterPhysicsBodies.forEach((body) => body.destroy());
         this.monsterPhysicsBodies.clear();
         this.nextContactDamageAt.clear();
+        if (this.enemyObstacleCollider) {
+            this.enemyObstacleCollider.destroy();
+            this.enemyObstacleCollider = null;
+        }
     }
 
     private createMonsterPhysicsBody(monster: Monster, visualSize: number) {
@@ -1348,12 +1373,21 @@ export class Game extends Scene {
         if (this.enemyCollisionCollider) {
             this.enemyCollisionCollider.destroy();
         }
+        if (this.enemyObstacleCollider) {
+            this.enemyObstacleCollider.destroy();
+        }
 
         const hosts = Array.from(this.monsterPhysicsBodies.values());
         if (hosts.length > 1) {
             this.enemyCollisionCollider = this.physics.add.collider(hosts, hosts);
         } else {
             this.enemyCollisionCollider = null;
+        }
+
+        if (hosts.length > 0 && this.dungeonObstacleBodies.length > 0) {
+            this.enemyObstacleCollider = this.physics.add.collider(hosts, this.dungeonObstacleBodies);
+        } else {
+            this.enemyObstacleCollider = null;
         }
     }
 
@@ -1689,6 +1723,13 @@ export class Game extends Scene {
             return;
         }
 
+        if (!this.canPlayerMoveTo(nextX, nextY)) {
+            if (!this.isPlayerAttackAnimationLocked()) {
+                this.applyPlayerAnimationState('idle');
+            }
+            return;
+        }
+
         this.playerSprite.setPosition(nextX, nextY);
         this.playerPhysicsHost.setPosition(nextX, nextY);
 
@@ -1749,9 +1790,32 @@ export class Game extends Scene {
             return false;
         }
 
+        if (!this.canPlayerMoveTo(nextX, nextY)) {
+            return false;
+        }
+
         this.playerSprite.setPosition(nextX, nextY);
         this.playerPhysicsHost.setPosition(nextX, nextY);
         return true;
+    }
+
+    private canPlayerMoveTo(nextX: number, nextY: number): boolean {
+        const proposedBounds = new Geom.Rectangle(
+            nextX - this.playerPhysicsHost.width / 2,
+            nextY - this.playerPhysicsHost.height / 2,
+            this.playerPhysicsHost.width,
+            this.playerPhysicsHost.height,
+        );
+
+        return !this.dungeonObstacleBodies.some((host) => {
+            const obstacleBounds = new Geom.Rectangle(
+                host.x - host.width / 2,
+                host.y - host.height / 2,
+                host.width,
+                host.height,
+            );
+            return Geom.Intersects.RectangleToRectangle(proposedBounds, obstacleBounds);
+        });
     }
 
     private ensurePlayerAnimations() {
@@ -1808,16 +1872,30 @@ export class Game extends Scene {
         this.dungeonFloorTilemap = null;
     }
 
+    private clearDungeonObjects() {
+        if (this.enemyObstacleCollider) {
+            this.enemyObstacleCollider.destroy();
+            this.enemyObstacleCollider = null;
+        }
+
+        this.dungeonObstacleBodies.forEach((body) => body.destroy());
+        this.dungeonObstacleBodies = [];
+        this.dungeonObjectLayers.forEach((layer) => layer.destroy());
+        this.dungeonObjectLayers = [];
+        this.dungeonObjectTilemap = null;
+    }
+
     private createDungeonFloorTilemap() {
         const tileWidth = 16;
         const tileHeight = 16;
         const columns = Math.ceil(DUNGEON_WIDTH / tileWidth);
         const rows = Math.ceil(DUNGEON_HEIGHT / tileHeight);
+        this.clearDungeonObjects();
         const data = Array.from({ length: rows }, () =>
             Array.from({ length: columns }, () => DUNGEON1_PRIMARY_FLOOR_TILE_ID),
         );
         const totalTiles = rows * columns;
-        const patchCount = Math.max(1, Math.floor((totalTiles * DUNGEON1_FLOOR_PATCH_RATIO) / 4));
+        const patchCount = Math.max(1, Math.floor((totalTiles * DUNGEON1_FLOOR_PATCH_RATIO) / 2));
         const occupiedPatches = new Set<string>();
         let placedPatches = 0;
         let attempts = 0;
@@ -1826,8 +1904,8 @@ export class Game extends Scene {
         while (placedPatches < patchCount && attempts < maxAttempts) {
             attempts += 1;
 
-            const patchX = PhaserMath.Between(0, columns - 2);
-            const patchY = PhaserMath.Between(0, rows - 2);
+            const patchX = PhaserMath.Between(1, columns - 3);
+            const patchY = PhaserMath.Between(1, rows - 2);
             const patchKey = `${patchX},${patchY}`;
 
             if (occupiedPatches.has(patchKey)) {
@@ -1835,11 +1913,26 @@ export class Game extends Scene {
             }
 
             occupiedPatches.add(patchKey);
-            data[patchY][patchX] = DUNGEON1_FLOOR_PATCH_TILE_IDS.topLeft;
-            data[patchY][patchX + 1] = DUNGEON1_FLOOR_PATCH_TILE_IDS.topRight;
-            data[patchY + 1][patchX] = DUNGEON1_FLOOR_PATCH_TILE_IDS.bottomLeft;
-            data[patchY + 1][patchX + 1] = DUNGEON1_FLOOR_PATCH_TILE_IDS.bottomRight;
+            const pairIndex = PhaserMath.Between(0, DUNGEON1_FLOOR_PATCH_TILE_PAIRS.length - 1);
+            const [leftTileId, rightTileId] = DUNGEON1_FLOOR_PATCH_TILE_PAIRS[pairIndex];
+            data[patchY][patchX] = leftTileId;
+            data[patchY][patchX + 1] = rightTileId;
             placedPatches += 1;
+        }
+
+        data[0][0] = DUNGEON1_WALL_BORDER_TILE_IDS.topLeft;
+        data[0][columns - 1] = DUNGEON1_WALL_BORDER_TILE_IDS.topRight;
+        data[rows - 1][0] = DUNGEON1_WALL_BORDER_TILE_IDS.bottomLeft;
+        data[rows - 1][columns - 1] = DUNGEON1_WALL_BORDER_TILE_IDS.bottomRight;
+
+        for (let x = 1; x < columns - 1; x += 1) {
+            data[0][x] = DUNGEON1_WALL_BORDER_TILE_IDS.top;
+            data[rows - 1][x] = DUNGEON1_WALL_BORDER_TILE_IDS.bottom;
+        }
+
+        for (let y = 1; y < rows - 1; y += 1) {
+            data[y][0] = DUNGEON1_WALL_BORDER_TILE_IDS.left;
+            data[y][columns - 1] = DUNGEON1_WALL_BORDER_TILE_IDS.right;
         }
 
         const map = this.make.tilemap({
@@ -1870,6 +1963,198 @@ export class Game extends Scene {
             layer.setDepth(DEPTH.WORLD_TILE);
             this.dungeonFloorLayers.push(layer);
         }
+
+        this.createDungeonObstacleTilemap(columns, rows, tileWidth, tileHeight, offsetX, offsetY);
+    }
+
+    private createDungeonObstacleTilemap(columns: number, rows: number, tileWidth: number, tileHeight: number, offsetX: number, offsetY: number) {
+        const obstacleDefinitions = this.getDungeonObstacleDefinitions();
+        const data = Array.from({ length: rows }, () =>
+            Array.from({ length: columns }, () => -1),
+        );
+        const placedAreas: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+        obstacleDefinitions.forEach((definition) => {
+            const placement = this.findDungeonObstaclePlacement(definition, columns, rows, tileWidth, tileHeight, offsetX, offsetY, placedAreas);
+            if (!placement) {
+                return;
+            }
+
+            placedAreas.push({
+                x: placement.x,
+                y: placement.y,
+                width: definition.width,
+                height: definition.height,
+            });
+
+            definition.tiles.forEach((tile) => {
+                data[placement.y + tile.y][placement.x + tile.x] = tile.tileId;
+            });
+
+            this.createDungeonObstacleBody(definition, placement.x, placement.y, tileWidth, tileHeight, offsetX, offsetY);
+        });
+
+        const map = this.make.tilemap({
+            data,
+            tileWidth,
+            tileHeight,
+        });
+        this.dungeonObjectTilemap = map;
+
+        const tileset = map.addTilesetImage(
+            'Objects',
+            DUNGEON1_TILESET_TEXTURE_KEYS.Objects,
+            tileWidth,
+            tileHeight,
+            0,
+            0,
+            1,
+        );
+
+        if (!tileset) {
+            return;
+        }
+
+        const layer = map.createLayer(0, tileset, offsetX, offsetY);
+        if (layer) {
+            layer.setDepth(DEPTH.WORLD_TILE + 5);
+            this.dungeonObjectLayers.push(layer);
+        }
+    }
+
+    private getDungeonObstacleDefinitions(): DungeonObstacleDefinition[] {
+        return [
+            {
+                key: 'pillar-a',
+                width: 1,
+                height: 2,
+                tiles: [
+                    { x: 0, y: 0, tileId: 127 },
+                    { x: 0, y: 1, tileId: 151 },
+                ],
+                collider: { x: 0, y: 0, width: 1, height: 1 },
+            },
+            {
+                key: 'pillar-a-2',
+                width: 1,
+                height: 2,
+                tiles: [
+                    { x: 0, y: 0, tileId: 127 },
+                    { x: 0, y: 1, tileId: 151 },
+                ],
+                collider: { x: 0, y: 0, width: 1, height: 1 },
+            },
+            {
+                key: 'pillar-b',
+                width: 1,
+                height: 2,
+                tiles: [
+                    { x: 0, y: 0, tileId: 128 },
+                    { x: 0, y: 1, tileId: 152 },
+                ],
+                collider: { x: 0, y: 0, width: 1, height: 1 },
+            },
+            {
+                key: 'pillar-b-2',
+                width: 1,
+                height: 2,
+                tiles: [
+                    { x: 0, y: 0, tileId: 128 },
+                    { x: 0, y: 1, tileId: 152 },
+                ],
+                collider: { x: 0, y: 0, width: 1, height: 1 },
+            },
+            {
+                key: 'crate-stack',
+                width: 2,
+                height: 3,
+                tiles: [
+                    { x: 0, y: 0, tileId: 42 },
+                    { x: 1, y: 0, tileId: 43 },
+                    { x: 0, y: 1, tileId: 66 },
+                    { x: 1, y: 1, tileId: 67 },
+                    { x: 0, y: 2, tileId: 90 },
+                    { x: 1, y: 2, tileId: 91 },
+                ],
+                collider: { x: 0, y: 1, width: 2, height: 1 },
+            },
+        ];
+    }
+
+    private findDungeonObstaclePlacement(
+        definition: DungeonObstacleDefinition,
+        columns: number,
+        rows: number,
+        tileWidth: number,
+        tileHeight: number,
+        offsetX: number,
+        offsetY: number,
+        placedAreas: Array<{ x: number; y: number; width: number; height: number }>,
+    ): { x: number; y: number } | null {
+        const minX = 2;
+        const maxX = columns - definition.width - 3;
+        const minY = 2;
+        const maxY = rows - definition.height - 3;
+        const playerSpawnX = DUNGEON_WIDTH / 2;
+        const playerSpawnY = DUNGEON_HEIGHT / 2;
+
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+            const x = PhaserMath.Between(minX, maxX);
+            const y = PhaserMath.Between(minY, maxY);
+            const overlapsExisting = placedAreas.some((area) =>
+                x < area.x + area.width + 1 &&
+                x + definition.width + 1 > area.x &&
+                y < area.y + area.height + 1 &&
+                y + definition.height + 1 > area.y,
+            );
+            if (overlapsExisting) {
+                continue;
+            }
+
+            const colliderCenterX = offsetX + (x + definition.collider.x + definition.collider.width / 2) * tileWidth;
+            const colliderCenterY = offsetY + (y + definition.collider.y + definition.collider.height / 2) * tileHeight;
+            const distanceToSpawn = PhaserMath.Distance.Between(colliderCenterX, colliderCenterY, playerSpawnX, playerSpawnY);
+            if (distanceToSpawn < 96) {
+                continue;
+            }
+
+            return { x, y };
+        }
+
+        return null;
+    }
+
+    private createDungeonObstacleBody(
+        definition: DungeonObstacleDefinition,
+        tileX: number,
+        tileY: number,
+        tileWidth: number,
+        tileHeight: number,
+        offsetX: number,
+        offsetY: number,
+    ) {
+        const colliderX = offsetX + (tileX + definition.collider.x) * tileWidth;
+        const colliderY = offsetY + (tileY + definition.collider.y) * tileHeight;
+        const bodyWidth = definition.collider.width * tileWidth;
+        const bodyHeight = definition.collider.height * tileHeight;
+        const host = this.add.rectangle(
+            colliderX + bodyWidth / 2,
+            colliderY + bodyHeight / 2,
+            bodyWidth,
+            bodyHeight,
+            0xffffff,
+            0,
+        )
+            .setVisible(false)
+            .setDepth(DEPTH.WORLD_TILE);
+
+        this.physics.add.existing(host);
+        const body = this.getArcadeBody(host);
+        body.setAllowGravity(false);
+        body.setImmovable(true);
+        body.moves = false;
+
+        this.dungeonObstacleBodies.push(host);
     }
 
     private updatePlayerFacingFromMovement(movement: { x: number; y: number }) {
@@ -2472,6 +2757,7 @@ export class Game extends Scene {
 
         this.floorTiles.forEach(tile => tile.setVisible(visible));
         this.dungeonFloorLayers.forEach((layer) => layer.setVisible(visible));
+        this.dungeonObjectLayers.forEach((layer) => layer.setVisible(visible));
         this.monsterSprites.forEach(sprite => sprite.setVisible(visible));
         this.lootItems.forEach(item => item.sprite.setVisible(visible));
         this.playerProjectiles.forEach((projectile) => projectile.sprite.setVisible(visible));
