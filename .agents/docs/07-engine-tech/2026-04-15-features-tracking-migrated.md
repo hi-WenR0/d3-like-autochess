@@ -945,3 +945,5 @@
 - 2026-04-17: Added character panel merge doc .agents/docs/05-ui-ux/2026-04-17-character-panel-merge.md
 
 - 2026-04-17: Added save slot class label doc .agents/docs/05-ui-ux/2026-04-17-save-slot-class-label.md
+
+- 2026-04-17: Added enemy spritesheet hookup doc .agents/docs/06-content/2026-04-17-enemy-spritesheet-hookup.md

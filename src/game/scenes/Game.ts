@@ -110,6 +110,17 @@ import {
     getPlayerSpritesheetKey,
 } from '../player-visuals';
 import {
+    ENEMY_ANIMATION_FRAME_COUNT,
+    ENEMY_ANIMATION_FRAME_RATE,
+    ENEMY_ANIM_STATES,
+    ENEMY_FACINGS,
+    ENEMY_SPRITE_SCALE,
+    type EnemyAnimState,
+    type EnemyFacing,
+    getEnemyAnimationKey,
+    getEnemySpritesheetKey,
+} from '../enemy-visuals';
+import {
     createEquippedItems,
     equipItem,
     canEquipItem,
@@ -223,6 +234,12 @@ interface PlayerProjectile {
     sprite: Phaser.GameObjects.Image;
     target: Monster;
     ownerClass: ProjectileClass;
+}
+
+interface MonsterVisualState {
+    facing: EnemyFacing;
+    facingLeft: boolean;
+    state: EnemyAnimState;
 }
 
 const PLAYER_PROJECTILE_SPEED: Record<ProjectileClass, number> = {
@@ -551,25 +568,33 @@ export class Game extends Scene {
     }
 
     private renderMonster(monster: Monster) {
-        const colors: Record<string, number> = { normal: 0xef5350, elite: 0xffa726, rare: 0xab47bc, boss: 0xff1744 };
-        const sizes: Record<string, number> = { normal: 20, elite: 26, rare: 30, boss: 40 };
-        const color = colors[monster.type] ?? 0xef5350;
+        this.ensureEnemyAnimations(monster.type);
+
+        const sizes: Record<string, number> = { normal: 20, elite: 24, rare: 28, boss: 34 };
         const size = sizes[monster.type] ?? 20;
         const barWidth = size + 4;
 
-        const body = this.add.rectangle(0, 0, size, size, color);
-        const hpBg = this.add.rectangle(0, -size / 2 - 6, barWidth, 4, 0x333333).setOrigin(0.5);
-        const hpBar = this.add.rectangle(-barWidth / 2, -size / 2 - 6, barWidth, 2, 0x00ff00).setOrigin(0, 0.5);
-        const label = this.add.text(0, -size / 2 - 14, monster.name, { fontSize: '9px', color: '#ffffff' }).setOrigin(0.5);
+        const body = this.add.sprite(0, 0, getEnemySpritesheetKey(monster.type, 'down', 'idle'), 0)
+            .setScale(ENEMY_SPRITE_SCALE[monster.type] ?? 1)
+            .setOrigin(0.5);
+        const hpBg = this.add.rectangle(0, -size / 2 - 10, barWidth, 4, 0x333333).setOrigin(0.5);
+        const hpBar = this.add.rectangle(-barWidth / 2, -size / 2 - 10, barWidth, 2, 0x00ff00).setOrigin(0, 0.5);
+        const label = this.add.text(0, -size / 2 - 18, monster.name, { fontSize: '9px', color: '#ffffff' }).setOrigin(0.5);
 
         const container = this.add.container(monster.x, monster.y, [body, hpBg, hpBar, label]).setDepth(DEPTH.WORLD_ENTITY);
         this.monsterSprites.set(monster.id, container);
         this.createMonsterPhysicsBody(monster, size);
 
         container.setData('monster', monster);
+        container.setData('bodySprite', body);
         container.setData('hpBar', hpBar);
         container.setData('maxHp', monster.stats.maxHp);
         container.setData('hpBarWidth', barWidth);
+        container.setData('visualState', {
+            facing: 'down',
+            facingLeft: false,
+            state: 'idle',
+        } satisfies MonsterVisualState);
         this.syncMonsterVisualState(monster);
     }
 
@@ -1474,6 +1499,30 @@ export class Game extends Scene {
         });
     }
 
+    private ensureEnemyAnimations(type: Monster['type']) {
+        ENEMY_FACINGS.forEach((facing) => {
+            ENEMY_ANIM_STATES.forEach((state) => {
+                const animationKey = getEnemyAnimationKey(type, facing, state);
+                if (this.anims.exists(animationKey)) {
+                    return;
+                }
+
+                this.anims.create({
+                    key: animationKey,
+                    frames: this.anims.generateFrameNumbers(
+                        getEnemySpritesheetKey(type, facing, state),
+                        {
+                            start: 0,
+                            end: ENEMY_ANIMATION_FRAME_COUNT[state] - 1,
+                        },
+                    ),
+                    frameRate: ENEMY_ANIMATION_FRAME_RATE[state],
+                    repeat: state === 'attack' || state === 'hurt' || state === 'death' ? 0 : -1,
+                });
+            });
+        });
+    }
+
     private updatePlayerFacingFromMovement(movement: { x: number; y: number }) {
         if (Math.abs(movement.y) >= Math.abs(movement.x)) {
             this.playerFacing = movement.y < 0 ? 'up' : 'down';
@@ -1580,12 +1629,43 @@ export class Game extends Scene {
     }
 
     private syncMonsterVisualState(monster: Monster) {
-        const sprite = this.monsterSprites.get(monster.id);
-        if (!sprite) {
+        const container = this.monsterSprites.get(monster.id);
+        if (!container) {
             return;
         }
 
-        sprite.setAlpha(monster.alertState === 'alerted' ? 1 : 0.82);
+        container.setAlpha(monster.alertState === 'alerted' ? 1 : 0.82);
+
+        const bodySprite = container.getData('bodySprite') as Phaser.GameObjects.Sprite | undefined;
+        const physicsHost = this.monsterPhysicsBodies.get(monster.id);
+        if (!bodySprite || !physicsHost) {
+            return;
+        }
+
+        const body = this.getArcadeBody(physicsHost);
+        const nextState: EnemyAnimState = Math.abs(body.velocity.x) > 1 || Math.abs(body.velocity.y) > 1 ? 'walk' : 'idle';
+        const nextFacing: EnemyFacing = Math.abs(body.velocity.y) >= Math.abs(body.velocity.x)
+            ? (body.velocity.y < 0 ? 'up' : 'down')
+            : 'side';
+        const nextFacingLeft = nextFacing === 'side' && body.velocity.x < 0;
+
+        const currentState = container.getData('visualState') as MonsterVisualState | undefined;
+        if (
+            currentState
+            && currentState.state === nextState
+            && currentState.facing === nextFacing
+            && currentState.facingLeft === nextFacingLeft
+        ) {
+            return;
+        }
+
+        bodySprite.setFlipX(nextFacing === 'side' && !nextFacingLeft);
+        bodySprite.play(getEnemyAnimationKey(monster.type, nextFacing, nextState), true);
+        container.setData('visualState', {
+            facing: nextFacing,
+            facingLeft: nextFacingLeft,
+            state: nextState,
+        } satisfies MonsterVisualState);
     }
 
     private showDamageNumber(x: number, y: number, damage: number, isCrit: boolean, suffix = '') {

@@ -9,8 +9,17 @@ import {
     getPlayerSpritesheetKey,
     getPlayerSpritesheetPath,
 } from '../player-visuals';
+import {
+    ENEMY_ANIM_STATES,
+    ENEMY_FACINGS,
+    ENEMY_SPRITE_FRAME_SIZE,
+    getEnemySpritesheetKey,
+    getEnemySpritesheetPath,
+} from '../enemy-visuals';
+import type { MonsterType } from '../models';
 
 const PLAYER_CLASSES: CharacterBaseClass[] = ['berserker', 'ranger', 'mage'];
+const ENEMY_TYPES: MonsterType[] = ['normal', 'elite', 'rare', 'boss'];
 
 export class Preloader extends Scene
 {
@@ -69,6 +78,21 @@ export class Preloader extends Scene
             }
 
             this.load.image(textureKey, texturePath);
+        });
+
+        ENEMY_TYPES.forEach((type) => {
+            ENEMY_FACINGS.forEach((facing) => {
+                ENEMY_ANIM_STATES.forEach((state) => {
+                    this.load.spritesheet(
+                        getEnemySpritesheetKey(type, facing, state),
+                        getEnemySpritesheetPath(type, facing, state),
+                        {
+                            frameWidth: ENEMY_SPRITE_FRAME_SIZE,
+                            frameHeight: ENEMY_SPRITE_FRAME_SIZE,
+                        },
+                    );
+                });
+            });
         });
     }
 
