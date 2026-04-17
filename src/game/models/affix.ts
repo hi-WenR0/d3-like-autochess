@@ -5,7 +5,8 @@ export type AffixCategory = 'offensive' | 'defensive' | 'special';
 export type AffixId =
     | 'strength' | 'berserk' | 'crit' | 'critDamage' | 'attackSpeed' | 'penetration' | 'lifeSteal'
     | 'vitality' | 'toughness' | 'hpRegen' | 'damageReduction' | 'evasion'
-    | 'combo' | 'whirlwind' | 'rebirth' | 'predator' | 'berserker' | 'immortal';
+    | 'combo' | 'whirlwind' | 'rebirth' | 'predator' | 'berserker' | 'immortal'
+    | 'skillDamage' | 'triggerCooldown' | 'activeCooldown' | 'healingSkillPower' | 'elementalSkillDamage';
 
 /** 词条定义 */
 export interface AffixDef {
@@ -42,12 +43,17 @@ export const DEFENSIVE_AFFIXES: ReadonlyArray<AffixDef> = [
 
 /** 特殊词条（仅传奇/神话） */
 export const SPECIAL_AFFIXES: ReadonlyArray<AffixDef> = [
-    { id: 'combo',      name: '连击',   category: 'special', weight: 20, minValue: 20,  maxValue: 20,  restrictedRarity: ['legendary', 'mythic'] },
-    { id: 'whirlwind',  name: '旋风斩', category: 'special', weight: 15, minValue: 15,  maxValue: 15,  restrictedRarity: ['legendary', 'mythic'] },
-    { id: 'rebirth',    name: '复活甲', category: 'special', weight: 10, minValue: 30,  maxValue: 30,  restrictedRarity: ['legendary', 'mythic'] },
-    { id: 'predator',   name: '掠夺者', category: 'special', weight: 10, minValue: 10,  maxValue: 10,  restrictedRarity: ['legendary', 'mythic'] },
-    { id: 'berserker',  name: '狂战士', category: 'special', weight: 8,  minValue: 100, maxValue: 100, restrictedRarity: ['legendary', 'mythic'] },
-    { id: 'immortal',   name: '不朽',   category: 'special', weight: 5,  minValue: 120, maxValue: 120, restrictedRarity: ['mythic'] },
+    { id: 'combo',                name: '连击',     category: 'special', weight: 20, minValue: 20,  maxValue: 20,  restrictedRarity: ['legendary', 'mythic'] },
+    { id: 'skillDamage',          name: '技能增幅', category: 'special', weight: 18, minValue: 6,   maxValue: 18,  restrictedRarity: ['rare', 'legendary', 'mythic'] },
+    { id: 'whirlwind',            name: '旋风斩',   category: 'special', weight: 15, minValue: 15,  maxValue: 15,  restrictedRarity: ['legendary', 'mythic'] },
+    { id: 'activeCooldown',       name: '主动冷却', category: 'special', weight: 12, minValue: 5,   maxValue: 15,  restrictedRarity: ['rare', 'legendary', 'mythic'] },
+    { id: 'healingSkillPower',    name: '技能治疗', category: 'special', weight: 12, minValue: 8,   maxValue: 25,  restrictedRarity: ['rare', 'legendary', 'mythic'] },
+    { id: 'triggerCooldown',      name: '触发冷却', category: 'special', weight: 12, minValue: 6,   maxValue: 18,  restrictedRarity: ['legendary', 'mythic'] },
+    { id: 'rebirth',              name: '复活甲',   category: 'special', weight: 10, minValue: 30,  maxValue: 30,  restrictedRarity: ['legendary', 'mythic'] },
+    { id: 'predator',             name: '掠夺者',   category: 'special', weight: 10, minValue: 10,  maxValue: 10,  restrictedRarity: ['legendary', 'mythic'] },
+    { id: 'elementalSkillDamage', name: '元素技能', category: 'special', weight: 10, minValue: 8,   maxValue: 25,  restrictedRarity: ['legendary', 'mythic'] },
+    { id: 'berserker',            name: '狂战士',   category: 'special', weight: 8,  minValue: 100, maxValue: 100, restrictedRarity: ['legendary', 'mythic'] },
+    { id: 'immortal',             name: '不朽',     category: 'special', weight: 5,  minValue: 120, maxValue: 120, restrictedRarity: ['mythic'] },
 ];
 
 /** 全部词条表 */

@@ -46,6 +46,11 @@ export function collectAffixEffects(equipped: EquippedItems): AffixEffects {
         predatorChance: 0,
         berserkerAtkBonus: 0,
         immortalCooldown: 0,
+        skillDamageBonus: 0,
+        triggerCooldownReduction: 0,
+        activeCooldownReduction: 0,
+        healingSkillPower: 0,
+        elementalSkillDamageBonus: 0,
     };
 
     const allEquipped = (Object.values(equipped) as (Equipment | undefined)[]).filter((e): e is Equipment => !!e);
@@ -63,6 +68,11 @@ export function collectAffixEffects(equipped: EquippedItems): AffixEffects {
                 case 'predator':         effects.predatorChance += affix.value; break;
                 case 'berserker':        effects.berserkerAtkBonus += affix.value; break;
                 case 'immortal':         effects.immortalCooldown += affix.value; break;
+                case 'skillDamage':      effects.skillDamageBonus += affix.value; break;
+                case 'triggerCooldown':  effects.triggerCooldownReduction += affix.value; break;
+                case 'activeCooldown':   effects.activeCooldownReduction += affix.value; break;
+                case 'healingSkillPower': effects.healingSkillPower += affix.value; break;
+                case 'elementalSkillDamage': effects.elementalSkillDamageBonus += affix.value; break;
             }
         }
     }
@@ -85,7 +95,44 @@ export interface AffixEffects {
     predatorChance: number;    // 掠夺者概率
     berserkerAtkBonus: number; // 狂战士 ATK 加成百分比
     immortalCooldown: number;  // 不朽冷却（秒）
+    skillDamageBonus: number;  // 技能伤害百分比
+    triggerCooldownReduction: number; // 触发技能冷却缩减百分比
+    activeCooldownReduction: number;  // 主动技能冷却缩减百分比
+    healingSkillPower: number; // 技能治疗效果百分比
+    elementalSkillDamageBonus: number; // 元素标签技能伤害百分比
     bonuses?: EquipBonuses;    // 基础属性加成
+}
+
+function clampPercent(value: number, max: number): number {
+    return Math.min(max, Math.max(0, value));
+}
+
+export function getEffectiveSkillDamageMultiplier(skill: SkillDefinition, effects: AffixEffects): number {
+    let bonus = effects.skillDamageBonus;
+    if (skill.tags.includes('elemental')) {
+        bonus += effects.elementalSkillDamageBonus;
+    }
+    return 1 + Math.max(0, bonus) / 100;
+}
+
+export function getEffectiveSkillHealRatio(skill: SkillDefinition, effects: AffixEffects): number {
+    const healRatio = skill.healRatio ?? 0;
+    if (healRatio <= 0) {
+        return 0;
+    }
+    return healRatio * (1 + Math.max(0, effects.healingSkillPower) / 100);
+}
+
+export function getEffectiveSkillCooldownMs(skill: SkillDefinition, effects: AffixEffects): number {
+    if (skill.cooldownMs <= 0) {
+        return 0;
+    }
+
+    const rawReduction = skill.type === 'trigger' || skill.tags.includes('trigger')
+        ? effects.triggerCooldownReduction
+        : effects.activeCooldownReduction;
+    const reduction = clampPercent(rawReduction, 50);
+    return Math.max(1000, Math.floor(skill.cooldownMs * (1 - reduction / 100)));
 }
 
 /** 计算单次攻击伤害（含穿透、狂战士） */
@@ -308,6 +355,7 @@ export function playerUseSkillOnMonster(
             damageMultiplier *= effect.bonusMultiplier;
         }
     }
+    damageMultiplier *= getEffectiveSkillDamageMultiplier(skill, effects);
     const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats, {
         damageMultiplier,
         critRateBonus: skill.critRateBonus,
@@ -317,8 +365,9 @@ export function playerUseSkillOnMonster(
     const monsterKilled = monsterTakeDamage(monster, damageDealt);
 
     let specializationHeal = 0;
-    if (skill.healRatio && skill.healRatio > 0) {
-        specializationHeal = Math.max(1, Math.floor(effectiveStats.maxHp * skill.healRatio));
+    const healRatio = getEffectiveSkillHealRatio(skill, effects);
+    if (healRatio > 0) {
+        specializationHeal = Math.max(1, Math.floor(effectiveStats.maxHp * healRatio));
         char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + specializationHeal);
     }
 

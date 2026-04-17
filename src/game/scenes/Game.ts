@@ -64,6 +64,9 @@ import {
     playerAttackMonster,
     playerUseSkillOnMonster,
     collectAffixEffects,
+    getEffectiveSkillCooldownMs,
+    getEffectiveSkillDamageMultiplier,
+    getEffectiveSkillHealRatio,
     type CombatResult,
 } from '../systems/combat-system';
 import {
@@ -1571,7 +1574,8 @@ export class Game extends Scene {
             return false;
         }
 
-        this.skillCooldowns[skill.id] = time + skill.cooldownMs;
+        const cooldownMs = getEffectiveSkillCooldownMs(skill, this.affixEffects);
+        this.skillCooldowns[skill.id] = time + cooldownMs;
         this.triggerPlayerAttackAnimation();
         const result = playerUseSkillOnMonster(this.character, monster, this.affixEffects, skill, stats);
         const sideEffectLines = this.applySkillSideEffects(skill);
@@ -2862,10 +2866,13 @@ export class Game extends Scene {
                 .join(' / ');
         }
 
-        const parts = [`伤害${Math.round(skill.damageMultiplier * 100)}%`];
+        const effectiveDamage = skill.damageMultiplier * getEffectiveSkillDamageMultiplier(skill, this.affixEffects);
+        const effectiveCooldown = getEffectiveSkillCooldownMs(skill, this.affixEffects);
+        const parts = [`伤害${Math.round(effectiveDamage * 100)}%`, `冷却${(effectiveCooldown / 1000).toFixed(1)}s`];
         if (skill.critRateBonus) parts.push(`暴击+${skill.critRateBonus}%`);
         if (skill.critDamageBonus) parts.push(`暴伤+${skill.critDamageBonus}%`);
-        if (skill.healRatio) parts.push(`回血${Math.round(skill.healRatio * 100)}%`);
+        const effectiveHealRatio = getEffectiveSkillHealRatio(skill, this.affixEffects);
+        if (effectiveHealRatio > 0) parts.push(`回血${Math.round(effectiveHealRatio * 100)}%`);
         for (const effect of skill.effects) {
             if (effect.type === 'buff') {
                 parts.push(`${this.skillBuffStatLabel(effect.stat)}+${effect.value}%`);
@@ -3171,6 +3178,11 @@ export class Game extends Scene {
             { label: '旋风斩率', value: this.affixEffects.whirlwindChance, unit: '%' },
             { label: '复活甲率', value: this.affixEffects.rebirthChance, unit: '%' },
             { label: '掠夺者率', value: this.affixEffects.predatorChance, unit: '%' },
+            { label: '技能伤害', value: this.affixEffects.skillDamageBonus, unit: '%' },
+            { label: '主动冷却', value: this.affixEffects.activeCooldownReduction, unit: '%' },
+            { label: '触发冷却', value: this.affixEffects.triggerCooldownReduction, unit: '%' },
+            { label: '技能治疗', value: this.affixEffects.healingSkillPower, unit: '%' },
+            { label: '元素技能', value: this.affixEffects.elementalSkillDamageBonus, unit: '%' },
         ];
 
         for (const e of effectLines) {
