@@ -2202,8 +2202,7 @@ export class Game extends Scene {
         const navBtns: { label: string; color: string; action: () => void }[] = [
             { label: '回主城', color: '#1abc9c', action: () => this.enterTown() },
             { label: '背包', color: '#3498db', action: () => this.openInventoryPanel() },
-            { label: '装备', color: '#2ecc71', action: () => this.openEquipPanel() },
-            { label: '属性', color: '#9b59b6', action: () => this.openStatsPanel() },
+            { label: '角色', color: '#2ecc71', action: () => this.openCharacterPanel() },
             { label: '技能', color: '#5dade2', action: () => this.openSkillLoadoutPanel() },
             { label: '消耗品', color: '#e67e22', action: () => this.openConsumablePanel() },
             { label: '商店', color: '#f1c40f', action: () => this.openShopPanel() },
@@ -3097,7 +3096,7 @@ export class Game extends Scene {
 
     // ─── 装备面板 ───
 
-    private openEquipPanel() {
+    private openCharacterPanel() {
         this.closeUI();
         this.isUIOpen = true;
 
@@ -3106,93 +3105,30 @@ export class Game extends Scene {
         const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.7).setOrigin(0).setDepth(200).setInteractive();
         elements.push(bg);
 
-        const panelBg = this.add.rectangle(250, 80, 524, 580, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x4a4a6a);
+        const panelBg = this.add.rectangle(120, 70, 784, 610, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x4a4a6a);
         elements.push(panelBg);
 
-        const title = this.add.text(512, 100, '装备栏', { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5).setDepth(202);
-        elements.push(title);
-
-        const closeBtn = this.add.text(740, 90, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
+        const title = this.add.text(512, 96, `\u89d2\u8272  Lv.${this.character.level}`, { fontSize: '22px', color: '#ffffff' }).setOrigin(0.5).setDepth(202);
+        const closeBtn = this.add.text(872, 86, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
         closeBtn.on('pointerdown', () => this.closeUI());
-        elements.push(closeBtn);
-
-        // 人物轮廓 + 槽位布局
-        const layout: { slot: EquipSlot; label: string; x: number; y: number }[] = [
-            { slot: 'helmet', label: '头盔', x: 380, y: 150 },
-            { slot: 'necklace', label: '项链', x: 530, y: 150 },
-            { slot: 'armor', label: '护甲', x: 380, y: 220 },
-            { slot: 'weapon', label: '武器', x: 530, y: 220 },
-            { slot: 'gloves', label: '手套', x: 380, y: 290 },
-            { slot: 'ring1', label: '戒指1', x: 530, y: 290 },
-            { slot: 'ring2', label: '戒指2', x: 620, y: 290 },
-            { slot: 'belt', label: '腰带', x: 380, y: 360 },
-            { slot: 'legs', label: '护腿', x: 380, y: 430 },
-            { slot: 'boots', label: '靴子', x: 380, y: 500 },
-        ];
-
-        for (const item of layout) {
-            const eq = getEquipped(this.equipped, item.slot);
-            const box = this.add.rectangle(item.x, item.y, 120, 50, eq ? 0x2a3a2a : 0x2a2a3e).setDepth(202).setStrokeStyle(1, eq ? 0x4a8a4a : 0x4a4a6a).setInteractive();
-            elements.push(box);
-
-            const label = this.add.text(item.x, item.y - 10, item.label, { fontSize: '10px', color: '#95a5a6' }).setOrigin(0.5).setDepth(203);
-            elements.push(label);
-
-            if (eq) {
-                const nameLabel = this.add.text(item.x, item.y + 10, eq.name, { fontSize: '10px', color: RARITY_CONFIG[eq.rarity].color }).setOrigin(0.5).setDepth(203);
-                elements.push(nameLabel);
-
-                box.on('pointerdown', () => this.onEquippedItemClick(item.slot));
-                box.on('pointerover', () => this.showTooltip(eq, item.x + 70, item.y - 30));
-                box.on('pointerout', () => this.hideTooltip());
-            }
-        }
-
-        // 属性总览
-        const bonuses = calculateEquipBonuses(this.equipped);
-        const statsY = 560;
-        const statsText = this.add.text(280, statsY, `装备加成: ATK+${bonuses.atk} DEF+${bonuses.def} HP+${bonuses.hp} CR+${bonuses.critRate}% CD+${bonuses.critDamage}%`, {
-            fontSize: '11px', color: '#2ecc71',
-        }).setDepth(202);
-        elements.push(statsText);
-
-        const panelRect: PanelRect = { x: 250, y: 80, width: 524, height: 580 };
-        this.createManagedPanel(elements, panelRect, panelBg);
-
-    }
-
-    // ─── 属性面板 ───
-
-    private openStatsPanel() {
-        this.closeUI();
-        this.isUIOpen = true;
-
-        const elements: Phaser.GameObjects.GameObject[] = [];
-
-        const bg = this.add.rectangle(0, 0, DUNGEON_WIDTH, DUNGEON_HEIGHT + HUD_HEIGHT, 0x000000, 0.7).setOrigin(0).setDepth(200).setInteractive();
-        elements.push(bg);
-
-        const panelBg = this.add.rectangle(300, 80, 424, 580, 0x1a1a2e).setOrigin(0).setDepth(201).setStrokeStyle(2, 0x4a4a6a);
-        elements.push(panelBg);
-
-        const title = this.add.text(512, 100, `角色属性  Lv.${this.character.level}`, { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5).setDepth(202);
-        elements.push(title);
-
-        const closeBtn = this.add.text(690, 90, '[X]', { fontSize: '18px', color: '#e74c3c' }).setDepth(202).setInteractive();
-        closeBtn.on('pointerdown', () => this.closeUI());
-        elements.push(closeBtn);
+        elements.push(title, closeBtn);
 
         const stats = this.getCurrentStats();
         const bonuses = calculateEquipBonuses(this.equipped);
         const classDef = BASE_CLASS_CONFIG[this.character.baseClass];
         const activeSkill = getActiveSkillForCharacter(this.character);
-
         const specializationDef = getSpecializationDef(this.character.baseClass, this.character.specialization);
+
+        const divider = this.add.rectangle(512, 118, 1, 520, 0x3a3a56).setDepth(202);
+        const statsSectionTitle = this.add.text(172, 136, '\u89d2\u8272\u5c5e\u6027', { fontSize: '18px', color: '#d6eaf8' }).setDepth(202);
+        const equipSectionTitle = this.add.text(582, 136, '\u88c5\u5907\u680f', { fontSize: '18px', color: '#d5f5e3' }).setDepth(202);
+        elements.push(divider, statsSectionTitle, equipSectionTitle);
+
         const classLine = addBoundedText(this, {
-            x: 512,
-            y: 124,
-            content: `职业: ${classDef.label} · ${this.getCombatStyleLabel(this.character.combatStyle)}  |  专精: ${specializationDef?.label ?? '未转职'}`,
-            width: 320,
+            x: 312,
+            y: 164,
+            content: `\u804c\u4e1a: ${classDef.label} \u00b7 ${this.getCombatStyleLabel(this.character.combatStyle)} | \u4e13\u7cbe: ${specializationDef?.label ?? '\u672a\u8f6c\u804c'}`,
+            width: 308,
             height: 20,
             minFontSize: 11,
             maxLines: 1,
@@ -3200,14 +3136,15 @@ export class Game extends Scene {
             style: { fontSize: '13px', color: classDef.color, align: 'center' },
         }).setDepth(202);
         elements.push(classLine);
+
         if (!specializationDef) {
             const unlockLine = addBoundedText(this, {
-                x: 512,
-                y: 143,
+                x: 312,
+                y: 186,
                 content: this.character.level >= ADVANCEMENT_REQUIREMENT_LEVEL
-                    ? '已满足二次转职条件，可在主城职业导师处选择专精'
-                    : `二次转职解锁条件：达到 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL}（当前 Lv.${this.character.level}）`,
-                width: 360,
+                    ? '\u5df2\u6ee1\u8db3\u4e8c\u6b21\u8f6c\u804c\u6761\u4ef6\uff0c\u53ef\u5728\u4e3b\u57ce\u804c\u4e1a\u5bfc\u5e08\u5904\u9009\u62e9\u4e13\u7cbe'
+                    : `\u4e8c\u6b21\u8f6c\u804c\u89e3\u9501\u6761\u4ef6\uff1a\u8fbe\u5230 Lv.${ADVANCEMENT_REQUIREMENT_LEVEL}\uff08\u5f53\u524d Lv.${this.character.level}\uff09`,
+                width: 320,
                 height: 34,
                 minFontSize: 10,
                 maxLines: 2,
@@ -3220,12 +3157,13 @@ export class Game extends Scene {
             }).setDepth(202);
             elements.push(unlockLine);
         }
+
         if (specializationDef) {
             const passiveLine = addBoundedText(this, {
-                x: 512,
-                y: 143,
-                content: `被动: ${specializationDef.passiveName} · ${specializationDef.passiveDescription}`,
-                width: 360,
+                x: 312,
+                y: 186,
+                content: `\u88ab\u52a8: ${specializationDef.passiveName} \u00b7 ${specializationDef.passiveDescription}`,
+                width: 320,
                 height: 34,
                 minFontSize: 10,
                 maxLines: 2,
@@ -3234,12 +3172,13 @@ export class Game extends Scene {
             }).setDepth(202);
             elements.push(passiveLine);
         }
+
         if (activeSkill) {
             const skillLine = addBoundedText(this, {
-                x: 512,
-                y: 162,
-                content: `职业技能: ${activeSkill.label} · CD ${(activeSkill.cooldownMs / 1000).toFixed(1)}s`,
-                width: 360,
+                x: 312,
+                y: 213,
+                content: `\u804c\u4e1a\u6280\u80fd: ${activeSkill.label} \u00b7 CD ${(activeSkill.cooldownMs / 1000).toFixed(1)}s`,
+                width: 320,
                 height: 20,
                 minFontSize: 10,
                 maxLines: 1,
@@ -3253,56 +3192,54 @@ export class Game extends Scene {
             { label: 'HP', value: `${this.character.baseStats.hp}/${stats.maxHp}`, bonus: bonuses.hp, unit: '' },
             { label: 'ATK', value: `${stats.atk}`, bonus: bonuses.atk, unit: '' },
             { label: 'DEF', value: `${stats.def}`, bonus: bonuses.def, unit: '' },
-            { label: '攻速', value: `${stats.attackSpeed.toFixed(2)}`, bonus: bonuses.attackSpeed, unit: '%' },
-            { label: '暴击率', value: `${stats.critRate.toFixed(1)}%`, bonus: bonuses.critRate, unit: '%' },
-            { label: '暴击伤害', value: `${stats.critDamage.toFixed(0)}%`, bonus: bonuses.critDamage, unit: '%' },
-            { label: '移速', value: `${stats.moveSpeed}`, bonus: bonuses.moveSpeed, unit: '' },
+            { label: '\u653b\u901f', value: `${stats.attackSpeed.toFixed(2)}`, bonus: bonuses.attackSpeed, unit: '%' },
+            { label: '\u66b4\u51fb\u7387', value: `${stats.critRate.toFixed(1)}%`, bonus: bonuses.critRate, unit: '%' },
+            { label: '\u66b4\u51fb\u4f24\u5bb3', value: `${stats.critDamage.toFixed(0)}%`, bonus: bonuses.critDamage, unit: '%' },
+            { label: '\u79fb\u901f', value: `${stats.moveSpeed}`, bonus: bonuses.moveSpeed, unit: '' },
         ];
 
-        let sy = specializationDef ? 186 : 168;
+        let sy = activeSkill ? 246 : specializationDef ? 220 : 212;
         for (const s of statLines) {
-            const label = this.add.text(330, sy, s.label, { fontSize: '14px', color: '#bdc3c7' }).setDepth(202);
-            const value = this.add.text(440, sy, s.value, { fontSize: '14px', color: '#ffffff' }).setDepth(202);
+            const label = this.add.text(158, sy, s.label, { fontSize: '14px', color: '#bdc3c7' }).setDepth(202);
+            const value = this.add.text(258, sy, s.value, { fontSize: '14px', color: '#ffffff' }).setDepth(202);
             const bonusText = s.bonus > 0 ? `(+${s.bonus}${s.unit})` : '';
-            const bonus = this.add.text(570, sy, bonusText, { fontSize: '12px', color: '#2ecc71' }).setDepth(202);
+            const bonus = this.add.text(378, sy, bonusText, { fontSize: '12px', color: '#2ecc71' }).setDepth(202);
             elements.push(label, value, bonus);
             sy += 28;
         }
 
-        // 词条效果
         sy += 20;
-        const effectTitle = this.add.text(330, sy, '词条效果:', { fontSize: '14px', color: '#f39c12' }).setDepth(202);
+        const effectTitle = this.add.text(158, sy, '\u8bcd\u6761\u6548\u679c:', { fontSize: '14px', color: '#f39c12' }).setDepth(202);
         elements.push(effectTitle);
         sy += 25;
 
         const effectLines = [
-            { label: '穿透', value: this.affixEffects.penetration, unit: '%' },
-            { label: '吸血', value: this.affixEffects.lifeSteal, unit: '%' },
-            { label: 'HP回复', value: this.affixEffects.hpRegen, unit: '/s' },
-            { label: '伤害减免', value: this.affixEffects.damageReduction, unit: '%' },
-            { label: '闪避', value: this.affixEffects.evasion, unit: '%' },
-            { label: '连击率', value: this.affixEffects.comboChance, unit: '%' },
-            { label: '旋风斩率', value: this.affixEffects.whirlwindChance, unit: '%' },
-            { label: '复活甲率', value: this.affixEffects.rebirthChance, unit: '%' },
-            { label: '掠夺者率', value: this.affixEffects.predatorChance, unit: '%' },
-            { label: '技能伤害', value: this.affixEffects.skillDamageBonus, unit: '%' },
-            { label: '主动冷却', value: this.affixEffects.activeCooldownReduction, unit: '%' },
-            { label: '触发冷却', value: this.affixEffects.triggerCooldownReduction, unit: '%' },
-            { label: '技能治疗', value: this.affixEffects.healingSkillPower, unit: '%' },
-            { label: '元素技能', value: this.affixEffects.elementalSkillDamageBonus, unit: '%' },
+            { label: '\u7a7f\u900f', value: this.affixEffects.penetration, unit: '%' },
+            { label: '\u5438\u8840', value: this.affixEffects.lifeSteal, unit: '%' },
+            { label: 'HP\u56de\u590d', value: this.affixEffects.hpRegen, unit: '/s' },
+            { label: '\u4f24\u5bb3\u51cf\u514d', value: this.affixEffects.damageReduction, unit: '%' },
+            { label: '\u95ea\u907f', value: this.affixEffects.evasion, unit: '%' },
+            { label: '\u8fde\u51fb\u7387', value: this.affixEffects.comboChance, unit: '%' },
+            { label: '\u65cb\u98ce\u65a9\u7387', value: this.affixEffects.whirlwindChance, unit: '%' },
+            { label: '\u590d\u6d3b\u7387', value: this.affixEffects.rebirthChance, unit: '%' },
+            { label: '\u63a0\u593a\u8005\u7387', value: this.affixEffects.predatorChance, unit: '%' },
+            { label: '\u6280\u80fd\u4f24\u5bb3', value: this.affixEffects.skillDamageBonus, unit: '%' },
+            { label: '\u4e3b\u52a8\u51b7\u5374', value: this.affixEffects.activeCooldownReduction, unit: '%' },
+            { label: '\u89e6\u53d1\u51b7\u5374', value: this.affixEffects.triggerCooldownReduction, unit: '%' },
+            { label: '\u6280\u80fd\u6cbb\u7597', value: this.affixEffects.healingSkillPower, unit: '%' },
+            { label: '\u5143\u7d20\u6280\u80fd', value: this.affixEffects.elementalSkillDamageBonus, unit: '%' },
         ];
 
         for (const e of effectLines) {
             if (e.value <= 0) continue;
-            const text = this.add.text(340, sy, `${e.label}: ${e.value}${e.unit}`, { fontSize: '12px', color: '#e6cc80' }).setDepth(202);
+            const text = this.add.text(168, sy, `${e.label}: ${e.value}${e.unit}`, { fontSize: '12px', color: '#e6cc80' }).setDepth(202);
             elements.push(text);
             sy += 20;
         }
 
-        // 属性点分配
         if (this.character.statPoints > 0) {
             sy += 20;
-            const ptsTitle = this.add.text(330, sy, `可分配属性点: ${this.character.statPoints}`, { fontSize: '14px', color: '#9b59b6' }).setDepth(202);
+            const ptsTitle = this.add.text(158, sy, `\u53ef\u5206\u914d\u5c5e\u6027\u70b9: ${this.character.statPoints}`, { fontSize: '14px', color: '#9b59b6' }).setDepth(202);
             elements.push(ptsTitle);
             sy += 30;
 
@@ -3315,20 +3252,71 @@ export class Game extends Scene {
             ];
 
             for (const s of allocStats) {
-                const btn = this.add.text(340, sy, `[+${s.label}]`, { fontSize: '13px', color: '#3498db' }).setDepth(202).setInteractive();
+                const btn = this.add.text(168, sy, `[+${s.label}]`, { fontSize: '13px', color: '#3498db' }).setDepth(202).setInteractive();
                 btn.on('pointerdown', () => {
                     allocateStatPoint(this.character, s.key);
                     this.affixEffects = collectAffixEffects(this.equipped);
-                    this.openStatsPanel(); // 刷新
+                    this.openCharacterPanel();
                 });
                 elements.push(btn);
                 sy += 24;
             }
         }
 
-        const panelRect: PanelRect = { x: 300, y: 80, width: 424, height: 580 };
-        this.createManagedPanel(elements, panelRect, panelBg);
+        const equipmentPanel = this.add.rectangle(706, 388, 332, 468, 0x141423, 0.75).setDepth(202).setStrokeStyle(1, 0x384b5a);
+        elements.push(equipmentPanel);
 
+        const layout: { slot: EquipSlot; label: string; x: number; y: number }[] = [
+            { slot: 'helmet', label: '\u5934\u76d4', x: 620, y: 186 },
+            { slot: 'necklace', label: '\u9879\u94fe', x: 792, y: 186 },
+            { slot: 'armor', label: '\u62a4\u7532', x: 620, y: 262 },
+            { slot: 'weapon', label: '\u6b66\u5668', x: 792, y: 262 },
+            { slot: 'gloves', label: '\u624b\u5957', x: 620, y: 338 },
+            { slot: 'ring1', label: '\u6212\u63071', x: 792, y: 338 },
+            { slot: 'belt', label: '\u8170\u5e26', x: 620, y: 414 },
+            { slot: 'ring2', label: '\u6212\u63072', x: 792, y: 414 },
+            { slot: 'legs', label: '\u62a4\u817f', x: 620, y: 490 },
+            { slot: 'boots', label: '\u9774\u5b50', x: 792, y: 490 },
+        ];
+
+        for (const item of layout) {
+            const eq = getEquipped(this.equipped, item.slot);
+            const box = this.add.rectangle(item.x, item.y, 140, 56, eq ? 0x243828 : 0x232338)
+                .setDepth(203)
+                .setStrokeStyle(1, eq ? 0x4a8a4a : 0x4a4a6a)
+                .setInteractive();
+            const label = this.add.text(item.x, item.y - 13, item.label, { fontSize: '10px', color: '#95a5a6' }).setOrigin(0.5).setDepth(204);
+            const value = this.add.text(item.x, item.y + 8, eq ? eq.name : '\u672a\u88c5\u5907', {
+                fontSize: '10px',
+                color: eq ? RARITY_CONFIG[eq.rarity].color : '#6b7280',
+                align: 'center',
+                wordWrap: { width: 126 },
+            }).setOrigin(0.5).setDepth(204);
+            elements.push(box, label, value);
+
+            if (eq) {
+                box.on('pointerdown', () => this.onEquippedItemClick(item.slot));
+                box.on('pointerover', () => this.showTooltip(eq, item.x + 84, item.y - 34));
+                box.on('pointerout', () => this.hideTooltip());
+            }
+        }
+
+        const equipBonusTitle = this.add.text(548, 572, '\u88c5\u5907\u603b\u52a0\u6210', { fontSize: '13px', color: '#2ecc71' }).setDepth(203);
+        const equipBonusText = addBoundedText(this, {
+            x: 706,
+            y: 602,
+            content: `ATK +${bonuses.atk}  DEF +${bonuses.def}  HP +${bonuses.hp}  AS +${bonuses.attackSpeed}%  CR +${bonuses.critRate}%  CD +${bonuses.critDamage}%  MS +${bonuses.moveSpeed}`,
+            width: 300,
+            height: 40,
+            minFontSize: 10,
+            maxLines: 2,
+            originX: 0.5,
+            style: { fontSize: '11px', color: '#2ecc71', align: 'center' },
+        }).setDepth(203);
+        elements.push(equipBonusTitle, equipBonusText);
+
+        const panelRect: PanelRect = { x: 120, y: 70, width: 784, height: 610 };
+        this.createManagedPanel(elements, panelRect, panelBg);
     }
 
     private openMonsterCodexPanel() {
