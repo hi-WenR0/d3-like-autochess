@@ -43,10 +43,14 @@ export type { DungeonEventDefinition, DungeonEventChoice, DungeonEventEffect, Du
 export type { ConsumableType, ConsumableCategory, ConsumableDef, Consumable, ActiveBuff } from './consumable';
 export { CONSUMABLE_DEFS, POTION_HEAL_RATIO } from './consumable';
 
-export type { SkillDefinition, SkillType, SkillSlotType, SkillLoadout, SkillCastCondition, SkillEffect } from './skill';
+export type { SkillDefinition, SkillType, SkillSlotType, SkillLoadout, SkillCastCondition, SkillEffect, SkillProgress, SkillGrowth } from './skill';
 export {
     CLASS_SKILLS,
     EMPTY_SKILL_LOADOUT,
+    MAX_SKILL_LEVEL,
+    BASE_SKILL_XP,
+    ACTIVE_SKILL_XP_PER_CAST,
+    PASSIVE_SKILL_XP_PER_BATTLE,
     createDefaultSkillLoadout,
     normalizeSkillLoadout,
     getSkillById,
@@ -63,4 +67,12 @@ export {
     getUnlockedSkills,
     getSkillPassiveBonuses,
     getActiveSkillForCharacter,
+    getSkillProgress,
+    addSkillExperience,
+    xpForSkillLevel,
+    getSkillDamageMultiplierWithLevel,
+    getSkillCooldownReductionWithLevel,
+    getSkillHealRatioWithLevel,
+    getSkillCritRateBonusWithLevel,
+    getSkillCritDamageBonusWithLevel,
 } from './skill';

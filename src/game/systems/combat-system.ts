@@ -5,6 +5,8 @@ import {
     type AffixId,
     type Equipment,
     type SkillDefinition,
+    getSkillProgress,
+    addSkillExperience,
 } from '../models';
 import { getEffectiveStats } from './character-system';
 import { monsterTakeDamage, getMonsterAttack } from './monster-system';
@@ -107,23 +109,34 @@ function clampPercent(value: number, max: number): number {
     return Math.min(max, Math.max(0, value));
 }
 
-export function getEffectiveSkillDamageMultiplier(skill: SkillDefinition, effects: AffixEffects): number {
+export function getEffectiveSkillDamageMultiplier(skill: SkillDefinition, effects: AffixEffects, level: number = 1): number {
     let bonus = effects.skillDamageBonus;
     if (skill.tags.includes('elemental')) {
         bonus += effects.elementalSkillDamageBonus;
     }
-    return 1 + Math.max(0, bonus) / 100;
+    const baseMultiplier = skill.damageMultiplier;
+    const growth = skill.growth;
+    let levelMultiplier = 1;
+    if (growth?.damageMultiplierPerLevel) {
+        levelMultiplier = Math.pow(1 + growth.damageMultiplierPerLevel, level - 1);
+    }
+    return baseMultiplier * levelMultiplier * (1 + Math.max(0, bonus) / 100);
 }
 
-export function getEffectiveSkillHealRatio(skill: SkillDefinition, effects: AffixEffects): number {
+export function getEffectiveSkillHealRatio(skill: SkillDefinition, effects: AffixEffects, level: number = 1): number {
     const healRatio = skill.healRatio ?? 0;
     if (healRatio <= 0) {
         return 0;
     }
-    return healRatio * (1 + Math.max(0, effects.healingSkillPower) / 100);
+    const growth = skill.growth;
+    let levelBonus = 0;
+    if (growth?.healRatioPerLevel) {
+        levelBonus = growth.healRatioPerLevel * (level - 1);
+    }
+    return (healRatio + levelBonus) * (1 + Math.max(0, effects.healingSkillPower) / 100);
 }
 
-export function getEffectiveSkillCooldownMs(skill: SkillDefinition, effects: AffixEffects): number {
+export function getEffectiveSkillCooldownMs(skill: SkillDefinition, effects: AffixEffects, level: number = 1): number {
     if (skill.cooldownMs <= 0) {
         return 0;
     }
@@ -131,7 +144,13 @@ export function getEffectiveSkillCooldownMs(skill: SkillDefinition, effects: Aff
     const rawReduction = skill.type === 'trigger' || skill.tags.includes('trigger')
         ? effects.triggerCooldownReduction
         : effects.activeCooldownReduction;
-    const reduction = clampPercent(rawReduction, 50);
+    const growth = skill.growth;
+    let levelReduction = 0;
+    if (growth?.cooldownReductionPerLevel) {
+        levelReduction = growth.cooldownReductionPerLevel * (level - 1);
+    }
+    const totalReduction = rawReduction + levelReduction;
+    const reduction = clampPercent(totalReduction, 50);
     return Math.max(1000, Math.floor(skill.cooldownMs * (1 - reduction / 100)));
 }
 
@@ -348,6 +367,8 @@ export function playerUseSkillOnMonster(
     stats?: CharacterStats,
 ): SkillCombatResult {
     const effectiveStats = stats ?? getEffectiveStats(char);
+    const progress = getSkillProgress(char, skill.id);
+    const level = progress.level;
     const targetHpRatio = monster.stats.maxHp > 0 ? monster.stats.hp / monster.stats.maxHp : 1;
     let damageMultiplier = skill.damageMultiplier;
     for (const effect of skill.effects) {
@@ -355,7 +376,7 @@ export function playerUseSkillOnMonster(
             damageMultiplier *= effect.bonusMultiplier;
         }
     }
-    damageMultiplier *= getEffectiveSkillDamageMultiplier(skill, effects);
+    damageMultiplier *= getEffectiveSkillDamageMultiplier(skill, effects, level);
     const { damage: rawDamage, isCrit } = calculateDamage(char, effects, effectiveStats, {
         damageMultiplier,
         critRateBonus: skill.critRateBonus,
@@ -365,11 +386,13 @@ export function playerUseSkillOnMonster(
     const monsterKilled = monsterTakeDamage(monster, damageDealt);
 
     let specializationHeal = 0;
-    const healRatio = getEffectiveSkillHealRatio(skill, effects);
+    const healRatio = getEffectiveSkillHealRatio(skill, effects, level);
     if (healRatio > 0) {
         specializationHeal = Math.max(1, Math.floor(effectiveStats.maxHp * healRatio));
         char.baseStats.hp = Math.min(effectiveStats.maxHp, char.baseStats.hp + specializationHeal);
     }
+    // 技能经验获取
+    addSkillExperience(skill.id, 10, char);
 
     return {
         skillName: skill.label,

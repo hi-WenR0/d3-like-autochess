@@ -27,6 +27,27 @@ export type SkillEffect =
     | { type: 'execute'; threshold: number; bonusMultiplier: number }
     | { type: 'passiveStat'; stat: 'atk' | 'def' | 'maxHp' | 'attackSpeedPct' | 'critRate' | 'critDamage' | 'moveSpeed'; value: number };
 
+export interface SkillProgress {
+    level: number;        // 当前等级 (1-10)
+    xp: number;          // 当前经验
+    xpToNext: number;    // 升级所需经验
+}
+
+export interface SkillGrowth {
+    damageMultiplierPerLevel?: number;      // 每级伤害乘数加成（乘法）
+    cooldownReductionPerLevel?: number;     // 每级冷却缩减百分比（加法）
+    healRatioPerLevel?: number;             // 每级治疗比率加成（加法）
+    critRateBonusPerLevel?: number;         // 每级暴击率加成（加法）
+    critDamageBonusPerLevel?: number;       // 每级暴击伤害加成（加法）
+    // 其他可成长属性...
+}
+
+// 技能升级相关常量
+export const MAX_SKILL_LEVEL = 10;
+export const BASE_SKILL_XP = 100;
+export const ACTIVE_SKILL_XP_PER_CAST = 10;
+export const PASSIVE_SKILL_XP_PER_BATTLE = 5;
+
 export interface SkillDefinition {
     id: string;
     label: string;
@@ -45,6 +66,7 @@ export interface SkillDefinition {
     critRateBonus?: number;
     critDamageBonus?: number;
     healRatio?: number;
+    growth?: SkillGrowth;
 }
 
 export const EMPTY_SKILL_LOADOUT: Readonly<SkillLoadout> = {
@@ -71,6 +93,10 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['melee', 'basic'],
         damageMultiplier: 1.8,
         critDamageBonus: 15,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+        },
     },
     {
         id: 'berserker-frenzy',
@@ -105,6 +131,11 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['trigger', 'heal', 'melee'],
         damageMultiplier: 1.5,
         healRatio: 0.05,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            healRatioPerLevel: 0.005,
+        },
     },
     {
         id: 'ranger-volley',
@@ -122,6 +153,11 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         damageMultiplier: 1.6,
         critRateBonus: 18,
         critDamageBonus: 10,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critRateBonusPerLevel: 0.5,
+        },
     },
     {
         id: 'ranger-eagle-eye',
@@ -156,6 +192,11 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['trigger', 'ranged', 'mobility'],
         damageMultiplier: 1.2,
         critRateBonus: 10,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critRateBonusPerLevel: 0.3,
+        },
     },
     {
         id: 'mage-burst',
@@ -172,6 +213,11 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         tags: ['ranged', 'basic'],
         damageMultiplier: 1.7,
         critDamageBonus: 18,
+        growth: {
+            damageMultiplierPerLevel: 0.02,
+            cooldownReductionPerLevel: 0.03,
+            critDamageBonusPerLevel: 1,
+        },
     },
     {
         id: 'mage-focus',
@@ -205,6 +251,10 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         effects: [{ type: 'damage', multiplier: 1.0 }, { type: 'buff', stat: 'def', value: 30, durationMs: 6000 }],
         tags: ['trigger', 'shield', 'arcane'],
         damageMultiplier: 1.0,
+        growth: {
+            cooldownReductionPerLevel: 0.03,
+            // 防御buff数值提升待定
+        },
     },
     {
         id: 'slayer-execute',
@@ -693,3 +743,88 @@ function normalizeSlotSkill(char: CharacterData, skillId: string | null, slot: S
     }
     return skill.id;
 }
+
+// ========================
+// 技能升级/熟练度系统
+// ========================
+
+/** 获取技能进度，如果不存在则创建默认进度 */
+export function getSkillProgress(char: CharacterData, skillId: string): SkillProgress {
+    let progress = char.skillProgress[skillId];
+    if (!progress) {
+        progress = {
+            level: 1,
+            xp: 0,
+            xpToNext: xpForSkillLevel(1),
+        };
+        char.skillProgress[skillId] = progress;
+    }
+    return progress;
+}
+
+/** 计算升级到指定等级所需的总经验 */
+export function xpForSkillLevel(level: number): number {
+    if (level <= 1) return 0;
+    // 经验公式：baseXP * level^1.5
+    return Math.floor(BASE_SKILL_XP * Math.pow(level, 1.5));
+}
+
+/** 为技能添加经验值，处理升级 */
+export function addSkillExperience(skillId: string, xp: number, char: CharacterData): void {
+    if (xp <= 0) return;
+    const progress = getSkillProgress(char, skillId);
+    if (progress.level >= MAX_SKILL_LEVEL) return; // 满级后不再获得经验
+    
+    progress.xp += xp;
+    
+    // 检查升级
+    while (progress.level < MAX_SKILL_LEVEL && progress.xp >= progress.xpToNext) {
+        progress.xp -= progress.xpToNext;
+        progress.level++;
+        progress.xpToNext = xpForSkillLevel(progress.level);
+        // 可以在这里触发升级事件或日志
+    }
+}
+
+/** 获取技能等级加成后的伤害乘数 */
+export function getSkillDamageMultiplierWithLevel(skill: SkillDefinition, level: number): number {
+    const base = skill.damageMultiplier;
+    const growth = skill.growth;
+    if (!growth || !growth.damageMultiplierPerLevel) return base;
+    // 每级增加 damageMultiplierPerLevel（乘法）
+    return base * Math.pow(1 + growth.damageMultiplierPerLevel, level - 1);
+}
+
+/** 获取技能等级加成后的冷却缩减（返回缩减百分比） */
+export function getSkillCooldownReductionWithLevel(skill: SkillDefinition, level: number): number {
+    const growth = skill.growth;
+    if (!growth || !growth.cooldownReductionPerLevel) return 0;
+    // 每级增加 cooldownReductionPerLevel（加法）
+    return growth.cooldownReductionPerLevel * (level - 1);
+}
+
+/** 获取技能等级加成后的治疗比率 */
+export function getSkillHealRatioWithLevel(skill: SkillDefinition, level: number): number {
+    const base = skill.healRatio ?? 0;
+    const growth = skill.growth;
+    if (!growth || !growth.healRatioPerLevel) return base;
+    // 每级增加 healRatioPerLevel（加法）
+    return base + growth.healRatioPerLevel * (level - 1);
+}
+
+/** 获取技能等级加成后的暴击率加成 */
+export function getSkillCritRateBonusWithLevel(skill: SkillDefinition, level: number): number {
+    const base = skill.critRateBonus ?? 0;
+    const growth = skill.growth;
+    if (!growth || !growth.critRateBonusPerLevel) return base;
+    return base + growth.critRateBonusPerLevel * (level - 1);
+}
+
+/** 获取技能等级加成后的暴击伤害加成 */
+export function getSkillCritDamageBonusWithLevel(skill: SkillDefinition, level: number): number {
+    const base = skill.critDamageBonus ?? 0;
+    const growth = skill.growth;
+    if (!growth || !growth.critDamageBonusPerLevel) return base;
+    return base + growth.critDamageBonusPerLevel * (level - 1);
+}
+

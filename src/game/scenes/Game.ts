@@ -31,6 +31,9 @@ import {
     canEquipSkill,
     equipSkill,
     isSkillUnlocked,
+    getSkillProgress,
+    getSkillCritRateBonusWithLevel,
+    getSkillCritDamageBonusWithLevel,
     CLASS_SKILLS,
     EQUIP_SLOTS,
     INVENTORY_CAPACITY,
@@ -1678,7 +1681,8 @@ export class Game extends Scene {
             return false;
         }
 
-        const cooldownMs = getEffectiveSkillCooldownMs(skill, this.affixEffects);
+        const skillLevel = getSkillProgress(this.character, skill.id).level;
+        const cooldownMs = getEffectiveSkillCooldownMs(skill, this.affixEffects, skillLevel);
         this.skillCooldowns[skill.id] = time + cooldownMs;
         this.triggerPlayerAttackAnimation();
         const result = playerUseSkillOnMonster(this.character, monster, this.affixEffects, skill, stats);
@@ -2833,12 +2837,13 @@ export class Game extends Scene {
         let y = 188;
         for (const slot of slots) {
             const skill = getEquippedSkillForSlot(this.character, slot);
+            const skillLevel = skill ? getSkillProgress(this.character, skill.id).level : 0;
             const slotBg = this.add.rectangle(150, y - 8, 300, 52, 0x17283a).setOrigin(0).setDepth(202).setStrokeStyle(1, 0x34495e);
             const slotLabel = this.add.text(166, y, this.skillSlotLabel(slot), { fontSize: '12px', color: '#95a5a6' }).setDepth(203);
             const skillLabel = addBoundedText(this, {
                 x: 260,
                 y,
-                content: skill ? skill.label : '未装备',
+                content: skill ? `${skill.label} (Lv${skillLevel})` : '未装备',
                 width: 168,
                 height: 18,
                 minFontSize: 10,
@@ -2972,12 +2977,15 @@ export class Game extends Scene {
                 .join(' / ');
         }
 
-        const effectiveDamage = skill.damageMultiplier * getEffectiveSkillDamageMultiplier(skill, this.affixEffects);
-        const effectiveCooldown = getEffectiveSkillCooldownMs(skill, this.affixEffects);
-        const parts = [`伤害${Math.round(effectiveDamage * 100)}%`, `冷却${(effectiveCooldown / 1000).toFixed(1)}s`];
-        if (skill.critRateBonus) parts.push(`暴击+${skill.critRateBonus}%`);
-        if (skill.critDamageBonus) parts.push(`暴伤+${skill.critDamageBonus}%`);
-        const effectiveHealRatio = getEffectiveSkillHealRatio(skill, this.affixEffects);
+        const skillLevel = getSkillProgress(this.character, skill.id).level;
+        const effectiveDamage = skill.damageMultiplier * getEffectiveSkillDamageMultiplier(skill, this.affixEffects, skillLevel);
+        const effectiveCooldown = getEffectiveSkillCooldownMs(skill, this.affixEffects, skillLevel);
+        const critRateBonusWithLevel = getSkillCritRateBonusWithLevel(skill, skillLevel);
+        const critDamageBonusWithLevel = getSkillCritDamageBonusWithLevel(skill, skillLevel);
+        const parts = [`Lv${skillLevel}`, `伤害${Math.round(effectiveDamage * 100)}%`, `冷却${(effectiveCooldown / 1000).toFixed(1)}s`];
+        if (critRateBonusWithLevel > 0) parts.push(`暴击+${Math.round(critRateBonusWithLevel * 100) / 100}%`);
+        if (critDamageBonusWithLevel > 0) parts.push(`暴伤+${critDamageBonusWithLevel}%`);
+        const effectiveHealRatio = getEffectiveSkillHealRatio(skill, this.affixEffects, skillLevel);
         if (effectiveHealRatio > 0) parts.push(`回血${Math.round(effectiveHealRatio * 100)}%`);
         for (const effect of skill.effects) {
             if (effect.type === 'buff') {

@@ -42,6 +42,7 @@ export function createCharacter(name: string, baseClass: CharacterBaseClass = 'b
         statPoints: 0,
         allocatedStats: { hp: 0, atk: 0, def: 0, attackSpeed: 0, critRate: 0, critDamage: 0, moveSpeed: 0 },
         skillLoadout: createDefaultSkillLoadout({ baseClass, specialization: null }),
+        skillProgress: {},
         baseStats: { ...classDef.startingStats },
         gold: 0,
         currentFloor: 1,
@@ -64,6 +65,7 @@ export function normalizeCharacterData(char: CharacterData): CharacterData {
         specialization: specializationDef?.id ?? null,
         advancementState,
     };
+    normalized.skillProgress = char.skillProgress ?? {};
     normalized.skillLoadout = normalizeSkillLoadout(normalized);
     return normalized;
 }
