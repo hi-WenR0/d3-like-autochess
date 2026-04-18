@@ -13,6 +13,8 @@ export interface PlayerSkillVisualDefinition {
     kind: PlayerSkillVisualKind;
     depthOffset?: number;
     offsetDistance?: number;
+    offsetY?: number;
+    rotationOffset?: number;
     alpha?: number;
 }
 
@@ -59,7 +61,7 @@ export const PLAYER_SKILL_VISUALS: Readonly<PlayerSkillVisualDefinition[]> = [
     {
         skillId: 'warlord-banner',
         baseClass: 'berserker',
-        folder: '\u6218\u5406\u7edf\u5e05\u6218\u65d7\u51b2\u950b\uff08\u975espritesheet\uff09',
+        folder: '\u6218\u543c\u7edf\u5e05\u6218\u65d7\u51b2\u950b\uff08\u975espritesheet\uff09',
         frameCount: 5,
         frameRate: 16,
         scale: 0.38,
@@ -69,12 +71,13 @@ export const PLAYER_SKILL_VISUALS: Readonly<PlayerSkillVisualDefinition[]> = [
     {
         skillId: 'warlord-banner-shock',
         baseClass: 'berserker',
-        folder: '\u6218\u5406\u7edf\u5e05\u6218\u65d7\u9707\u8361\uff08\u975espritesheet\uff09',
+        folder: '\u6218\u543c\u7edf\u5e05\u6218\u65d7\u9707\u8361\uff08\u975espritesheet\uff09',
         filePrefix: 'Explosion_',
         frameCount: 10,
         frameRate: 20,
-        scale: 0.34,
+        scale: 0.255,
         kind: 'aoeSelf',
+        offsetY: -20,
     },
     {
         skillId: 'bloodguard-rage',
@@ -83,8 +86,9 @@ export const PLAYER_SKILL_VISUALS: Readonly<PlayerSkillVisualDefinition[]> = [
         frameCount: 8,
         frameRate: 18,
         scale: 0.4,
-        kind: 'meleeSlash',
-        offsetDistance: 34,
+        kind: 'meleeTarget',
+        offsetDistance: 20,
+        rotationOffset: Math.PI / 2,
     },
     {
         skillId: 'bloodguard-sanguine-rift',
@@ -93,8 +97,9 @@ export const PLAYER_SKILL_VISUALS: Readonly<PlayerSkillVisualDefinition[]> = [
         filePrefix: 'Explosion_',
         frameCount: 10,
         frameRate: 20,
-        scale: 0.4,
+        scale: 0.3,
         kind: 'aoeSelf',
+        offsetY: -50,
     },
 ];
 

@@ -2233,9 +2233,16 @@ export class Game extends Scene {
             return;
         }
 
+        const firstFrameKey = getPlayerSkillVisualFrameKey(skill.id, 1);
+        if (!this.textures.exists(firstFrameKey)) {
+            console.warn(`Missing player skill visual texture: ${firstFrameKey}`);
+            return;
+        }
+
         const originX = this.playerSprite.x;
         const originY = this.playerSprite.y;
         const angle = PhaserMath.Angle.Between(originX, originY, targetMonster.x, targetMonster.y);
+        const visualRotation = angle + (visual.rotationOffset ?? 0);
 
         let x = centerOverride?.x ?? targetMonster.x;
         let y = centerOverride?.y ?? targetMonster.y;
@@ -2244,18 +2251,24 @@ export class Game extends Scene {
             const offset = visual.offsetDistance ?? 0;
             x = originX + Math.cos(angle) * offset;
             y = originY + Math.sin(angle) * offset;
+        } else if (visual.kind === 'meleeTarget') {
+            const offset = visual.offsetDistance ?? 0;
+            x = (centerOverride?.x ?? targetMonster.x) - Math.cos(angle) * offset;
+            y = (centerOverride?.y ?? targetMonster.y) - Math.sin(angle) * offset;
         } else if (visual.kind === 'aoeSelf') {
             x = centerOverride?.x ?? originX;
             y = centerOverride?.y ?? originY;
         }
 
-        const sprite = this.add.sprite(x, y, getPlayerSkillVisualFrameKey(skill.id, 1))
+        y += visual.offsetY ?? 0;
+
+        const sprite = this.add.sprite(x, y, firstFrameKey)
             .setDepth(DEPTH.WORLD_PROJECTILE + (visual.depthOffset ?? 1))
             .setScale(visual.scale)
             .setAlpha(visual.alpha ?? 1);
 
         if (visual.kind === 'meleeSlash' || visual.kind === 'meleeTarget') {
-            sprite.setRotation(angle);
+            sprite.setRotation(visualRotation);
         }
 
         sprite.once('animationcomplete', () => sprite.destroy());

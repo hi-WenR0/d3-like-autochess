@@ -443,7 +443,7 @@ export const CLASS_SKILLS: Readonly<SkillDefinition[]> = [
         unlockLevel: 10,
         cooldownMs: 6000,
         priority: 60,
-        conditions: [{ type: 'playerHpBelow', ratio: 0.6 }],
+        conditions: [{ type: 'playerHpBelow', ratio: 1 }],
         effects: [{ type: 'damage', multiplier: 1.8 }, { type: 'heal', ratio: 0.08 }],
         tags: ['specialization', 'heal'],
         damageMultiplier: 1.8,
