@@ -11,8 +11,11 @@ import {
 } from '../player-visuals';
 import {
     PLAYER_SKILL_VISUALS,
+    getPlayerSkillVisualAssetType,
     getPlayerSkillVisualFrameKey,
     getPlayerSkillVisualFramePath,
+    getPlayerSkillVisualSpritesheetPath,
+    getPlayerSkillVisualTextureKey,
 } from '../player-skill-visuals';
 import {
     ENEMY_ANIM_STATES,
@@ -99,6 +102,18 @@ export class Preloader extends Scene
         });
 
         PLAYER_SKILL_VISUALS.forEach((visual) => {
+            if (getPlayerSkillVisualAssetType(visual) === 'spritesheet') {
+                this.load.spritesheet(
+                    getPlayerSkillVisualTextureKey(visual.skillId),
+                    getPlayerSkillVisualSpritesheetPath(visual),
+                    {
+                        frameWidth: visual.frameWidth ?? 48,
+                        frameHeight: visual.frameHeight ?? 48,
+                    },
+                );
+                return;
+            }
+
             for (let frame = 1; frame <= visual.frameCount; frame++) {
                 this.load.image(
                     getPlayerSkillVisualFrameKey(visual.skillId, frame),

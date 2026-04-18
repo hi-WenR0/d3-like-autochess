@@ -1,11 +1,13 @@
 import type { CharacterBaseClass } from './models';
 
-export type PlayerSkillVisualKind = 'meleeSlash' | 'meleeTarget' | 'aoeSelf' | 'aoeTarget';
+export type PlayerSkillVisualKind = 'meleeSlash' | 'meleeTarget' | 'aoeSelf' | 'aoeTarget' | 'rangedLine';
+export type PlayerSkillVisualAssetType = 'frames' | 'spritesheet';
 
 export interface PlayerSkillVisualDefinition {
     skillId: string;
     baseClass: CharacterBaseClass;
     folder: string;
+    assetType?: PlayerSkillVisualAssetType;
     filePrefix?: string;
     frameCount: number;
     frameRate: number;
@@ -15,10 +17,17 @@ export interface PlayerSkillVisualDefinition {
     offsetDistance?: number;
     offsetY?: number;
     rotationOffset?: number;
+    originX?: number;
+    originY?: number;
+    frameWidth?: number;
+    frameHeight?: number;
     alpha?: number;
 }
 
-const BERSERKER_SKILL_ROOT = 'kuangzhanshi/skills';
+const PLAYER_SKILL_ROOTS: Partial<Record<CharacterBaseClass, string>> = {
+    berserker: 'kuangzhanshi/skills',
+    ranger: 'youxia/skills',
+};
 
 export const PLAYER_SKILL_VISUALS: Readonly<PlayerSkillVisualDefinition[]> = [
     {
@@ -101,6 +110,75 @@ export const PLAYER_SKILL_VISUALS: Readonly<PlayerSkillVisualDefinition[]> = [
         kind: 'aoeSelf',
         offsetY: -50,
     },
+    {
+        skillId: 'ranger-volley',
+        baseClass: 'ranger',
+        folder: '\u6e38\u4fa0\u7a7f\u98ce\u7bad\uff08\u975espritesheet\uff09',
+        filePrefix: 'Explosion_',
+        frameCount: 5,
+        frameRate: 18,
+        scale: 0.3,
+        kind: 'rangedLine',
+        rotationOffset: -Math.PI / 2,
+        originX: 0.5,
+        originY: 0,
+    },
+    {
+        skillId: 'ranger-burst-volley',
+        baseClass: 'ranger',
+        folder: '\u6e38\u4fa0\u7206\u88c2\u7bad\u96e8',
+        assetType: 'spritesheet',
+        frameCount: 9,
+        frameRate: 18,
+        frameWidth: 48,
+        frameHeight: 48,
+        scale: 2.2,
+        kind: 'aoeTarget',
+    },
+    {
+        skillId: 'sharpshooter-headshot',
+        baseClass: 'ranger',
+        folder: '\u795e\u5c04\u624b\u7206\u5934\u72d9\u51fb',
+        assetType: 'spritesheet',
+        frameCount: 6,
+        frameRate: 20,
+        frameWidth: 40,
+        frameHeight: 40,
+        scale: 2,
+        kind: 'aoeTarget',
+    },
+    {
+        skillId: 'sharpshooter-piercing-line',
+        baseClass: 'ranger',
+        folder: '\u795e\u5c04\u624b\u8d2f\u661f\u7bad\uff08\u975espritesheet\uff09',
+        frameCount: 5,
+        frameRate: 18,
+        scale: 0.52,
+        kind: 'rangedLine',
+        originX: 0,
+        originY: 0.5,
+    },
+    {
+        skillId: 'trapper-burst',
+        baseClass: 'ranger',
+        folder: '\u9677\u9631\u5927\u5e08\u8bf1\u6355\u7206\u53d1\uff08\u975espritesheet\uff09',
+        filePrefix: 'Explosion_blue_oval',
+        frameCount: 10,
+        frameRate: 20,
+        scale: 0.7333333333333334,
+        kind: 'aoeTarget',
+    },
+    {
+        skillId: 'trapper-chain-mines',
+        baseClass: 'ranger',
+        folder: '\u9677\u9631\u5927\u5e08\u8fde\u9501\u7206\u96f7\uff08\u975espritesheet\uff09',
+        filePrefix: 'Explosion_two_colors',
+        frameCount: 10,
+        frameRate: 20,
+        scale: 0.8625,
+        kind: 'aoeTarget',
+        offsetY: -20,
+    },
 ];
 
 export function getPlayerSkillVisual(skillId: string): PlayerSkillVisualDefinition | null {
@@ -115,7 +193,27 @@ export function getPlayerSkillVisualAnimationKey(skillId: string): string {
     return `player-skill-${skillId}-anim`;
 }
 
+export function getPlayerSkillVisualTextureKey(skillId: string): string {
+    return `player-skill-${skillId}-texture`;
+}
+
+export function getPlayerSkillVisualAssetType(definition: PlayerSkillVisualDefinition): PlayerSkillVisualAssetType {
+    return definition.assetType ?? 'frames';
+}
+
 export function getPlayerSkillVisualFramePath(definition: PlayerSkillVisualDefinition, frame: number): string {
+    const skillRoot = PLAYER_SKILL_ROOTS[definition.baseClass];
+    if (!skillRoot) {
+        throw new Error(`Missing player skill visual root for class: ${definition.baseClass}`);
+    }
     const prefix = definition.filePrefix ?? '';
-    return `${BERSERKER_SKILL_ROOT}/${definition.folder}/${prefix}${frame}.png`;
+    return `${skillRoot}/${definition.folder}/${prefix}${frame}.png`;
+}
+
+export function getPlayerSkillVisualSpritesheetPath(definition: PlayerSkillVisualDefinition): string {
+    const skillRoot = PLAYER_SKILL_ROOTS[definition.baseClass];
+    if (!skillRoot) {
+        throw new Error(`Missing player skill visual root for class: ${definition.baseClass}`);
+    }
+    return `${skillRoot}/${definition.folder}/spritesheet.png`;
 }

@@ -114,9 +114,11 @@ import {
 } from '../player-visuals';
 import {
     PLAYER_SKILL_VISUALS,
+    getPlayerSkillVisualAssetType,
     getPlayerSkillVisual,
     getPlayerSkillVisualAnimationKey,
     getPlayerSkillVisualFrameKey,
+    getPlayerSkillVisualTextureKey,
 } from '../player-skill-visuals';
 import {
     ENEMY_ANIMATION_FRAME_COUNT,
@@ -1871,14 +1873,16 @@ export class Game extends Scene {
                 return;
             }
 
-            const frames = [];
-            for (let frame = 1; frame <= visual.frameCount; frame++) {
-                frames.push({ key: getPlayerSkillVisualFrameKey(visual.skillId, frame) });
-            }
-
             this.anims.create({
                 key: animationKey,
-                frames,
+                frames: getPlayerSkillVisualAssetType(visual) === 'spritesheet'
+                    ? this.anims.generateFrameNumbers(getPlayerSkillVisualTextureKey(visual.skillId), {
+                        start: 0,
+                        end: visual.frameCount - 1,
+                    })
+                    : Array.from({ length: visual.frameCount }, (_, index) => ({
+                        key: getPlayerSkillVisualFrameKey(visual.skillId, index + 1),
+                    })),
                 frameRate: visual.frameRate,
                 repeat: 0,
             });
@@ -2233,9 +2237,12 @@ export class Game extends Scene {
             return;
         }
 
-        const firstFrameKey = getPlayerSkillVisualFrameKey(skill.id, 1);
-        if (!this.textures.exists(firstFrameKey)) {
-            console.warn(`Missing player skill visual texture: ${firstFrameKey}`);
+        const isSpritesheet = getPlayerSkillVisualAssetType(visual) === 'spritesheet';
+        const textureKey = isSpritesheet
+            ? getPlayerSkillVisualTextureKey(skill.id)
+            : getPlayerSkillVisualFrameKey(skill.id, 1);
+        if (!this.textures.exists(textureKey)) {
+            console.warn(`Missing player skill visual texture: ${textureKey}`);
             return;
         }
 
@@ -2251,6 +2258,10 @@ export class Game extends Scene {
             const offset = visual.offsetDistance ?? 0;
             x = originX + Math.cos(angle) * offset;
             y = originY + Math.sin(angle) * offset;
+        } else if (visual.kind === 'rangedLine') {
+            const offset = visual.offsetDistance ?? 0;
+            x = originX + Math.cos(angle) * offset;
+            y = originY + Math.sin(angle) * offset;
         } else if (visual.kind === 'meleeTarget') {
             const offset = visual.offsetDistance ?? 0;
             x = (centerOverride?.x ?? targetMonster.x) - Math.cos(angle) * offset;
@@ -2262,12 +2273,13 @@ export class Game extends Scene {
 
         y += visual.offsetY ?? 0;
 
-        const sprite = this.add.sprite(x, y, firstFrameKey)
+        const sprite = this.add.sprite(x, y, textureKey, isSpritesheet ? 0 : undefined)
+            .setOrigin(visual.originX ?? 0.5, visual.originY ?? 0.5)
             .setDepth(DEPTH.WORLD_PROJECTILE + (visual.depthOffset ?? 1))
             .setScale(visual.scale)
             .setAlpha(visual.alpha ?? 1);
 
-        if (visual.kind === 'meleeSlash' || visual.kind === 'meleeTarget') {
+        if (visual.kind === 'meleeSlash' || visual.kind === 'meleeTarget' || visual.kind === 'rangedLine') {
             sprite.setRotation(visualRotation);
         }
 
