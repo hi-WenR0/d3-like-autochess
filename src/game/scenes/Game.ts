@@ -113,6 +113,12 @@ import {
     getPlayerSpritesheetKey,
 } from '../player-visuals';
 import {
+    PLAYER_SKILL_VISUALS,
+    getPlayerSkillVisual,
+    getPlayerSkillVisualAnimationKey,
+    getPlayerSkillVisualFrameKey,
+} from '../player-skill-visuals';
+import {
     ENEMY_ANIMATION_FRAME_COUNT,
     ENEMY_ANIMATION_FRAME_RATE,
     ENEMY_ANIM_STATES,
@@ -589,6 +595,7 @@ export class Game extends Scene {
 
     private renderPlayer() {
         this.ensurePlayerAnimations();
+        this.ensurePlayerSkillVisualAnimations();
 
         const body = this.add.sprite(0, 0, getPlayerSpritesheetKey(this.character.baseClass, 'down', 'idle'))
             .setScale(PLAYER_SPRITE_SCALE);
@@ -748,6 +755,7 @@ export class Game extends Scene {
 
         const playerCombatProfile = getCombatStyleProfile(this.character.combatStyle);
         const monsterCombatProfile = getCombatStyleProfile(this.currentMonster.combatStyle);
+        const playerAttackRange = this.getPlayerAttackRange(playerCombatProfile.attackRange);
 
         const distanceToTarget = PhaserMath.Distance.Between(
             this.playerSprite.x,
@@ -755,7 +763,7 @@ export class Game extends Scene {
             this.currentMonster.x,
             this.currentMonster.y,
         );
-        if (distanceToTarget > playerCombatProfile.attackRange) {
+        if (distanceToTarget > playerAttackRange) {
             return;
         }
 
@@ -1856,6 +1864,27 @@ export class Game extends Scene {
         });
     }
 
+    private ensurePlayerSkillVisualAnimations() {
+        PLAYER_SKILL_VISUALS.forEach((visual) => {
+            const animationKey = getPlayerSkillVisualAnimationKey(visual.skillId);
+            if (this.anims.exists(animationKey)) {
+                return;
+            }
+
+            const frames = [];
+            for (let frame = 1; frame <= visual.frameCount; frame++) {
+                frames.push({ key: getPlayerSkillVisualFrameKey(visual.skillId, frame) });
+            }
+
+            this.anims.create({
+                key: animationKey,
+                frames,
+                frameRate: visual.frameRate,
+                repeat: 0,
+            });
+        });
+    }
+
     private ensureEnemyAnimations(type: Monster['type']) {
         ENEMY_FACINGS.forEach((facing) => {
             ENEMY_ANIM_STATES.forEach((state) => {
@@ -2194,6 +2223,45 @@ export class Game extends Scene {
         this.applyPlayerAnimationState('attack', true);
     }
 
+    private playPlayerSkillVisual(
+        skill: SkillDefinition,
+        targetMonster: Monster,
+        centerOverride?: { x: number; y: number },
+    ) {
+        const visual = getPlayerSkillVisual(skill.id);
+        if (!visual || visual.baseClass !== this.character.baseClass) {
+            return;
+        }
+
+        const originX = this.playerSprite.x;
+        const originY = this.playerSprite.y;
+        const angle = PhaserMath.Angle.Between(originX, originY, targetMonster.x, targetMonster.y);
+
+        let x = centerOverride?.x ?? targetMonster.x;
+        let y = centerOverride?.y ?? targetMonster.y;
+
+        if (visual.kind === 'meleeSlash') {
+            const offset = visual.offsetDistance ?? 0;
+            x = originX + Math.cos(angle) * offset;
+            y = originY + Math.sin(angle) * offset;
+        } else if (visual.kind === 'aoeSelf') {
+            x = centerOverride?.x ?? originX;
+            y = centerOverride?.y ?? originY;
+        }
+
+        const sprite = this.add.sprite(x, y, getPlayerSkillVisualFrameKey(skill.id, 1))
+            .setDepth(DEPTH.WORLD_PROJECTILE + (visual.depthOffset ?? 1))
+            .setScale(visual.scale)
+            .setAlpha(visual.alpha ?? 1);
+
+        if (visual.kind === 'meleeSlash' || visual.kind === 'meleeTarget') {
+            sprite.setRotation(angle);
+        }
+
+        sprite.once('animationcomplete', () => sprite.destroy());
+        sprite.play(getPlayerSkillVisualAnimationKey(skill.id));
+    }
+
     private applyPlayerAnimationState(state: PlayerAnimState, forceRestart = false) {
         if (!this.playerBodySprite) {
             return;
@@ -2213,6 +2281,14 @@ export class Game extends Scene {
 
     private getCombatStyleLabel(style: CombatStyle): string {
         return getCombatStyleProfile(style).label;
+    }
+
+    private getPlayerAttackRange(defaultRange: number): number {
+        if (this.character.baseClass === 'berserker') {
+            return 30;
+        }
+
+        return defaultRange;
     }
 
     private recordMonsterCodexKill(monster: Monster) {
@@ -2505,6 +2581,7 @@ export class Game extends Scene {
         }
 
         const result = playerUseSkillOnMonster(this.character, monster, this.affixEffects, skill, stats);
+        this.playPlayerSkillVisual(skill, monster);
         const sideEffectLines = this.applySkillSideEffects(skill);
         this.showDamageNumber(monster.x, monster.y - 44, result.damageDealt, result.isCrit, ` ${result.skillName}`);
 
@@ -2537,6 +2614,7 @@ export class Game extends Scene {
         }
 
         this.showPlayerAoeWarning(skill, aoeEffect, monster, center);
+        this.playPlayerSkillVisual(skill, monster, center);
         const result = playerUseAoeSkillOnMonsters(this.character, targets, this.affixEffects, skill, stats);
         const sideEffectLines = this.applySkillSideEffects(skill);
 

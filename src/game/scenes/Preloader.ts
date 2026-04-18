@@ -10,6 +10,11 @@ import {
     getPlayerSpritesheetPath,
 } from '../player-visuals';
 import {
+    PLAYER_SKILL_VISUALS,
+    getPlayerSkillVisualFrameKey,
+    getPlayerSkillVisualFramePath,
+} from '../player-skill-visuals';
+import {
     ENEMY_ANIM_STATES,
     ENEMY_FACINGS,
     ENEMY_SPRITE_FRAME_SIZE,
@@ -91,6 +96,15 @@ export class Preloader extends Scene
             }
 
             this.load.image(textureKey, texturePath);
+        });
+
+        PLAYER_SKILL_VISUALS.forEach((visual) => {
+            for (let frame = 1; frame <= visual.frameCount; frame++) {
+                this.load.image(
+                    getPlayerSkillVisualFrameKey(visual.skillId, frame),
+                    getPlayerSkillVisualFramePath(visual, frame),
+                );
+            }
         });
 
         ENEMY_TYPES.forEach((type) => {
